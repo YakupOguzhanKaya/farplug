@@ -1,0 +1,29 @@
+# usbridged configuration.
+#
+# Each [device.<id>] block exports one USB serial device. The <id> is what
+# clients attach to, so keep it stable even if the hardware is replaced.
+#
+# Find matchers with:  usbridged --config /dev/null --listen 127.0.0.1:0
+# or just:             ls -l /dev/serial/by-id   (Linux)
+
+name = "usbgw"
+listen = "0.0.0.0:7070"
+
+[device.zigbee]
+label = "SMLIGHT SLZB-07 (EZSP)"
+vid = "10c4"
+pid = "ea60"
+serial = "0001"
+baud = 115200
+flow_control = "hardware"
+
+[device.zwave]
+label = "Zooz ZST39 800"
+vid = "1a86"
+pid = "55d4"
+baud = 115200
+
+[device.ups]
+label = "Eaton 5E serial"
+path = "/dev/ttyUSB2"
+baud = 2400

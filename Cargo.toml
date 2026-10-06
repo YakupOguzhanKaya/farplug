@@ -1,0 +1,25 @@
+[workspace]
+resolver = "2"
+members = ["crates/proto", "crates/server", "crates/client"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.78"
+license = "MIT"
+
+[workspace.dependencies]
+usbridge-proto = { path = "crates/proto" }
+
+anyhow = "1"
+bytes = "1"
+clap = { version = "4", features = ["derive", "env"] }
+postcard = { version = "1", features = ["use-std"] }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "signal", "sync", "time"] }
+tokio-serial = "5"
+tokio-util = { version = "0.7", features = ["codec"] }
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

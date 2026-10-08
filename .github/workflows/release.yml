@@ -1,0 +1,103 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # The gateway only ever runs on Linux, so it is the only thing built here.
+  server:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cross --locked
+      - run: cross build --release --target ${{ matrix.target }} -p usbridged
+      - name: package
+        run: |
+          d=usbridged-${{ matrix.target }}
+          mkdir -p "$d"
+          cp target/${{ matrix.target }}/release/usbridged "$d/"
+          cp config.example.toml dist/usbridged.service install/install-server.sh README.md "$d/"
+          tar czf "$d.tar.gz" "$d"
+          sha256sum "$d.tar.gz" > "$d.tar.gz.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: usbridged-${{ matrix.target }}
+          path: usbridged-*.tar.gz*
+
+  # The client has no native dependencies, so Linux builds are fully static.
+  client-linux:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [x86_64-unknown-linux-musl, aarch64-unknown-linux-musl]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cross --locked
+      - run: cross build --release --target ${{ matrix.target }} -p usbridge
+      - name: package
+        run: |
+          d=usbridge-${{ matrix.target }}
+          mkdir -p "$d"
+          cp target/${{ matrix.target }}/release/usbridge "$d/"
+          cp install/install-client.sh README.md "$d/"
+          tar czf "$d.tar.gz" "$d"
+          sha256sum "$d.tar.gz" > "$d.tar.gz.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: usbridge-${{ matrix.target }}
+          path: usbridge-*.tar.gz*
+
+  client-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          cargo build --release --target aarch64-apple-darwin -p usbridge
+          cargo build --release --target x86_64-apple-darwin -p usbridge
+      - name: package universal binary
+        run: |
+          d=usbridge-universal-apple-darwin
+          mkdir -p "$d"
+          lipo -create -output "$d/usbridge" \
+            target/aarch64-apple-darwin/release/usbridge \
+            target/x86_64-apple-darwin/release/usbridge
+          cp install/install-client.sh dist/com.usbridge.client.plist README.md "$d/"
+          tar czf "$d.tar.gz" "$d"
+          shasum -a 256 "$d.tar.gz" > "$d.tar.gz.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: usbridge-universal-apple-darwin
+          path: usbridge-*.tar.gz*
+
+  publish:
+    needs: [server, client-linux, client-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true

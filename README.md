@@ -41,34 +41,53 @@ outlives individual TCP sessions: if the gateway reboots or the device is
 unplugged, the pty stays open and the application holding it does not need to be
 restarted.
 
-## Build
+## Install
+
+Prebuilt binaries, no Rust toolchain required. The gateway and the client are
+separate downloads — install only the one that machine needs.
+
+**Gateway** (Linux x86-64 or arm64):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/YakupOguzhanKaya/usbridge/master/install/install-server.sh | sh
+```
+
+Installs `usbridged`, a starter `/etc/usbridge/config.toml`, and the systemd
+unit. Edit the config, then `sudo systemctl enable --now usbridged`.
+
+**Client** (macOS universal, or Linux x86-64/arm64):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/YakupOguzhanKaya/usbridge/master/install/install-client.sh | sh
+```
+
+Installs a single `usbridge` binary. The Linux client is fully static; it links
+nothing beyond libc. The gateway needs `libudev1`, which every systemd distro
+already has.
+
+> **This repository is private.** Both scripts — and the `raw.githubusercontent`
+> URLs above — need a token to reach it:
+> `export GITHUB_TOKEN=ghp_...` before running, and fetch the script itself with
+> `curl -H "Authorization: Bearer $GITHUB_TOKEN"`. Making the repo public removes
+> this entirely.
+
+Releases are cut by pushing a tag:
+
+```sh
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+## Build from source
+
+Only needed if you are changing the code.
 
 ```sh
 cargo build --release
-# gateway binary:  target/release/usbridged
-# client binary:   target/release/usbridge
-```
-
-Cross-compile for a Pi:
-
-```sh
-rustup target add aarch64-unknown-linux-gnu
-cargo build --release --target aarch64-unknown-linux-gnu -p usbridged
+# gateway:  target/release/usbridged
+# client:   target/release/usbridge
 ```
 
 ## Run
-
-On the gateway:
-
-```sh
-sudo install -D -m0755 target/release/usbridged /usr/local/bin/usbridged
-sudo install -D -m0644 config.example.toml /etc/usbridge/config.toml
-sudo useradd --system --no-create-home usbridge
-sudo install -D -m0644 dist/usbridged.service /etc/systemd/system/usbridged.service
-sudo systemctl enable --now usbridged
-```
-
-On a client:
 
 ```sh
 usbridge --server usbgw.local list
@@ -93,12 +112,14 @@ Then point Home Assistant, `zigbee2mqtt`, `nut` or anything else at the symlink.
 - **One client per device.** A second client is refused unless it passes
   `--steal`, which evicts the holder.
 
-## Licence
-
-MIT.
-
 ## Test
 
 ```sh
 tests/run-smoke.sh
 ```
+
+Runs the end-to-end loopback test in a Linux container.
+
+## Licence
+
+MIT.

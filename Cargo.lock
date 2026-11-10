@@ -3962,7 +3962,7 @@ dependencies = [
 
 [[package]]
 name = "usbridge"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -3979,7 +3979,7 @@ dependencies = [
 
 [[package]]
 name = "usbridge-gui"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "eframe",
@@ -3994,7 +3994,7 @@ dependencies = [
 
 [[package]]
 name = "usbridge-usbip"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "socket2",
  "thiserror 2.0.21",
@@ -4002,7 +4002,7 @@ dependencies = [
 
 [[package]]
 name = "usbridged"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "clap",

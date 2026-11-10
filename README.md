@@ -1,124 +1,154 @@
 # usbridge
 
-Share USB devices from a small always-on box to any machine on your LAN,
-without kernel drivers on the client.
+Share the USB devices plugged into a Linux box with other machines on your
+network. On the client, a device shows up as if it were plugged in locally:
+`lsusb` lists it and the client's own drivers handle it.
 
-Unlike USB/IP, `usbridge` does not try to make a remote device appear as a
-generic local USB device. That approach needs a virtual USB host controller in
-the kernel, which is why USB/IP has no usable macOS client — Apple does not
-grant the entitlement. Instead `usbridge` bridges at the **device-class** level,
-so every client is plain userspace and works the same on Linux and macOS.
+It speaks the standard [USB/IP] protocol and lets the Linux kernel move the
+USB traffic (`usbip-host` on the server, `vhci_hcd` on the client). usbridge
+adds what the stock `usbip` tools leave to you:
+
+- **Devices are chosen by VID/PID/serial or physical port**, not by bus number,
+  and exported under a name you pick (`zigbee`, `printer`).
+- **Hotplug on the server.** A configured device is exported as soon as it is
+  plugged in and re-exported after a replug or a reboot. Unlisted devices are
+  never touched.
+- **Clients reconnect on their own.** `usbridge attach` keeps devices attached
+  through server restarts, network drops and replugs.
+
+Restarting `usbridged` does not disconnect clients: the kernel owns attached
+connections, not the daemon.
+
+[USB/IP]: https://docs.kernel.org/usb/usbip_protocol.html
 
 ## Status
 
-| Profile | Server | Client | Notes |
-|---|---|---|---|
-| Serial (CDC-ACM / FTDI / CP210x) | working | working | Zigbee, Z-Wave, UPS, ESP, GPS, printers |
-| libusb shim | planned | planned | SDR, Coral TPU, `dfu-util`, `esptool` |
-| Block storage | planned | — | will export over NBD rather than tunnel USB |
-| HID | planned | planned | uinput on Linux, Karabiner VHID on macOS |
+| | Server | Client |
+|---|---|---|
+| Linux | working | working |
+| Windows | — | written, not yet tested on Windows (x64 and ARM64, uses [usbip-win2]) |
+| macOS | — | everything but attaching: the agent, `list`, `status` and the window run; attach reports "not supported yet" |
 
-Only the serial profile exists today. It covers most of a typical home rack.
+On Windows, usbridge drives the [usbip-win2] kernel driver, which is signed
+by Microsoft. Install usbip-win2 first; it was written against 0.9.8.1. The
+macOS client will use Apple's `IOUSBHostControllerInterface`, a user-space
+virtual host controller. It needs a managed entitlement from Apple.
 
-## How it works
-
-```
-  ┌──────────── gateway (Lenovo mini / Pi) ────────────┐
-  │  usbridged                                         │
-  │    config.toml ──► match VID/PID/serial ──► /dev/ttyUSB*
-  └──────────────────────┬─────────────────────────────┘
-                         │  TCP 7070, length-delimited postcard frames
-  ┌──────────────────────▼─────────────────────────────┐
-  │  usbridge attach zigbee --link ~/.usbridge/dev/zigbee
-  │    └─► openpty() ─► /dev/ttys004 ◄── symlink        │
-  └────────────────────────────────────────────────────┘
-            applications open the symlink as a normal serial port
-```
-
-Devices are matched by USB VID/PID/serial, never by `/dev` path, so a replug or
-reboot that renumbers the ports does not break anything. The client's pty
-outlives individual TCP sessions: if the gateway reboots or the device is
-unplugged, the pty stays open and the application holding it does not need to be
-restarted.
+[usbip-win2]: https://github.com/vadimgrn/usbip-win2
 
 ## Install
 
-Prebuilt binaries, no Rust toolchain required. The gateway and the client are
-separate downloads — install only the one that machine needs.
+Prebuilt static binaries, no Rust toolchain required.
 
-**Gateway** (Linux x86-64 or arm64):
+**Server** (Linux x86-64 or arm64):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/YakupOguzhanKaya/usbridge/master/install/install-server.sh | sh
 ```
 
-Installs `usbridged`, a starter `/etc/usbridge/config.toml`, and the systemd
-unit. Edit the config, then `sudo systemctl enable --now usbridged`.
-
-**Client** (macOS universal, or Linux x86-64/arm64):
+**Client** (Linux x86-64/arm64, macOS):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/YakupOguzhanKaya/usbridge/master/install/install-client.sh | sh
 ```
 
-Installs a single `usbridge` binary. The Linux client is fully static; it links
-nothing beyond libc. The gateway needs `libudev1`, which every systemd distro
-already has.
+**Client on Windows** (x64 or ARM64): the `curl … | sh` line above works from
+Git Bash. Without Git Bash, run this in PowerShell instead:
 
-> **This repository is private.** Both scripts — and the `raw.githubusercontent`
-> URLs above — need a token to reach it:
+```powershell
+irm https://raw.githubusercontent.com/YakupOguzhanKaya/usbridge/master/install/install-client.ps1 | iex
+```
+
+It installs per user, without admin rights, into `%LOCALAPPDATA%\Programs\usbridge`.
+It adds `usbridge` to your `PATH`, adds a Start menu entry, and starts the tray
+icon at every login. If the [usbip-win2] driver is missing, it installs it,
+which needs one administrator approval. To uninstall:
+`& ([scriptblock]::Create((irm <same url>))) -Uninstall`.
+
+Both sides need the USB/IP kernel modules: `usbip-host` on the server and
+`vhci-hcd` on the client. Most distros ship them. On Debian or Ubuntu cloud
+images they are in `linux-modules-extra-$(uname -r)`.
+
+> **This repository is private.** Both scripts, and the `raw.githubusercontent`
+> URLs above, need a token to reach it:
 > `export GITHUB_TOKEN=ghp_...` before running, and fetch the script itself with
 > `curl -H "Authorization: Bearer $GITHUB_TOKEN"`. Making the repo public removes
 > this entirely.
 
-Releases are cut by pushing a tag:
+## Set up
+
+On the server:
 
 ```sh
-git tag v0.1.0 && git push origin v0.1.0
+sudo usbridged scan                   # what is plugged in, with vid/pid/serial
+sudo $EDITOR /etc/usbridge/config.toml
+sudo systemctl enable --now usbridged
 ```
 
-## Build from source
-
-Only needed if you are changing the code.
-
-```sh
-cargo build --release
-# gateway:  target/release/usbridged
-# client:   target/release/usbridge
+```toml
+[device.zigbee]
+vid = "10c4"
+pid = "ea60"
+serial = "0001"
 ```
 
-## Run
+On a client, the `usbridge-agent` service owns the attachments. It keeps
+devices attached through disconnects and re-attaches them after a reboot,
+until you detach them. The CLI only gives it orders:
 
 ```sh
 usbridge --server usbgw.local list
-usbridge --server usbgw.local attach zigbee --link ~/.usbridge/dev/zigbee
+usbridge --server usbgw.local attach zigbee
+usbridge status
+usbridge detach zigbee
 ```
 
-Then point Home Assistant, `zigbee2mqtt`, `nut` or anything else at the symlink.
+Or use the GUI: `usbridge-gui` opens a window listing your servers and their
+devices, with an Attach/Detach button for each. `usbridge-gui --tray` puts an
+icon in the system tray with a checkbox per device; its color is green when
+everything is attached, amber while something is reconnecting, and grey when
+nothing is attached. The installer sets the tray icon to start at login on
+Linux and Windows desktops. The GUI is only a remote: closing it leaves devices attached.
+
+On Windows there is no service. The agent runs in your session, and the GUI
+starts it if it is not running.
+
+On Linux, members of the `usbridge` group can control the agent without
+`sudo`; the client installer adds you. `usbridge attach --foreground` attaches
+without the agent, until Ctrl-C, which needs root on Linux.
+
+The stock tools also work against the server:
+`usbip attach -r usbgw.local -b zigbee`.
+
+To give a device back to the server's own drivers, remove it from the config
+and run `sudo usbridged release zigbee`.
 
 ## Known limits
 
-- **Line settings are set at attach time.** A pty cannot report termios changes
-  the way a real USB serial adapter does, so an app that reconfigures baud rate
-  mid-stream is not followed. Set it in `config.toml`, or pass `--baud`.
-- **DTR/RTS are wired in the protocol but not driven from the pty.** This blocks
-  auto-reset flashing (`esptool`, Arduino) over the bridge. Needs pty packet
-  mode on the client side — see `ClientMsg::SetControlLines`.
-- **No authentication or encryption.** Run it on a trusted VLAN, or put it
-  behind WireGuard. Do not expose port 7070 to the internet.
-- **The gateway must run on Linux.** It builds and runs on macOS, but opening a
-  pty-backed device there fails with ENOTTY, so the test suite and the fake-device
-  workflow are Linux-only.
-- **One client per device.** A second client is refused unless it passes
-  `--steal`, which evicts the holder.
+- **No encryption or authentication**, by design. It is meant for a trusted
+  home network. To reach it from elsewhere, use Tailscale or WireGuard. Do not
+  expose port 3240 to the internet.
+- **One client per device.** A second import is refused while the device is in
+  use.
+- Hubs are never exported, only the devices behind them.
 
-## Test
+## Build and test
 
 ```sh
-tests/run-smoke.sh
+cargo build --release      # target/release/usbridged, target/release/usbridge
+cargo test
+tests/run-e2e.sh           # end-to-end, in a privileged Docker container
 ```
 
-Runs the end-to-end loopback test in a Linux container.
+`tests/gui-screenshot.sh` and `tests/tray-screenshot.sh` render the window and
+the tray menu under Xvfb, inside the same container, for a visual check.
+
+The end-to-end test attaches an emulated device through the real `vhci_hcd`
+driver of Docker's Linux VM. It also checks the server against the stock
+`usbip` tool. Docker Desktop's kernel has no `usbip-host`, so the server's
+binding to real hardware is only exercised on a real Linux machine.
+
+Releases are cut by pushing a tag: `git tag v0.2.0 && git push origin v0.2.0`.
 
 ## Licence
 

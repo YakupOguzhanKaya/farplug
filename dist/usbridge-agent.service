@@ -1,0 +1,19 @@
+# Owns the devices attached on this machine. Control it with `usbridge` or
+# `usbridge-gui`; members of the `usbridge` group may do so without sudo.
+[Unit]
+Description=usbridge client agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStartPre=-/sbin/modprobe vhci-hcd
+ExecStart=/usr/local/bin/usbridge agent
+Restart=always
+RestartSec=2
+Environment=RUST_LOG=info
+RuntimeDirectory=usbridge
+RuntimeDirectoryMode=0755
+StateDirectory=usbridge
+
+[Install]
+WantedBy=multi-user.target

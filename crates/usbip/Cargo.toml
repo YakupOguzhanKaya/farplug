@@ -1,0 +1,11 @@
+[package]
+name = "usbridge-usbip"
+description = "USB/IP wire protocol (operation phase)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+socket2.workspace = true

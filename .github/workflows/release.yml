@@ -91,7 +91,7 @@ jobs:
 
   # Attaching does not work on macOS yet; listing, the agent and the window do.
   client-macos:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

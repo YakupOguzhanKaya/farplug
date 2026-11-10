@@ -1,217 +1,225 @@
 mod config;
-mod discovery;
-mod serial;
+mod exports;
+mod sysfs;
 
-use std::{
-    collections::HashMap,
-    net::SocketAddr,
-    path::PathBuf,
-    sync::{Arc, Mutex},
-};
+use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::os::fd::AsRawFd;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 
-use anyhow::Result;
-use clap::Parser;
-use futures::{SinkExt, StreamExt};
-use tokio::{net::TcpListener, sync::Notify};
-use tokio_util::codec::Framed;
-use tracing::{info, warn};
-use usbridge_proto::{
-    ClientMsg, ErrorCode, FrameCodec, Profile, ServerMsg, DEFAULT_PORT, PROTOCOL_VERSION,
-};
+use anyhow::{bail, Context, Result};
+use clap::{Parser, Subcommand};
+use tracing::{debug, info, warn};
+use usbridge_usbip::{self as usbip, Request, Status};
 
 use config::Config;
+use exports::Exports;
+use sysfs::{StubStatus, Sysfs};
+
+const POLL: Duration = Duration::from_secs(1);
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Parser)]
-#[command(name = "usbridged", about = "Export USB serial devices over the network")]
-struct Args {
-    #[arg(short, long, env = "USBRIDGE_CONFIG", default_value = "/etc/usbridge/config.toml")]
+#[command(version, about = "Export USB devices over the network (USB/IP server)")]
+struct Cli {
+    #[arg(
+        short,
+        long,
+        env = "USBRIDGE_CONFIG",
+        default_value = "/etc/usbridge/config.toml"
+    )]
     config: PathBuf,
-
-    /// Override the listen address from the config file.
-    #[arg(short, long)]
-    listen: Option<String>,
+    /// For tests: read and write a fake sysfs tree instead of /sys.
+    #[arg(long, hide = true, default_value = "/sys")]
+    sysfs_root: PathBuf,
+    #[command(subcommand)]
+    cmd: Option<Cmd>,
 }
 
-/// Which client currently holds each device. An eviction `Notify` lets a later
-/// client with `steal` take over without waiting for the holder to time out.
-#[derive(Default)]
-struct Registry {
-    held: Mutex<HashMap<String, Arc<Notify>>>,
+#[derive(Subcommand)]
+enum Cmd {
+    /// Run the server (the default).
+    Serve {
+        /// Overrides `listen` from the config file.
+        #[arg(short, long)]
+        listen: Option<String>,
+    },
+    /// List the USB devices on this machine, to help write the config.
+    Scan,
+    /// Give devices back to this machine's own drivers. Clients using them
+    /// are disconnected; a running server re-exports them on its next poll.
+    Release {
+        /// Export ids from the config, or raw busids such as 1-1.4.
+        #[arg(required = true)]
+        devices: Vec<String>,
+    },
 }
 
-impl Registry {
-    fn is_busy(&self, id: &str) -> bool {
-        self.held.lock().unwrap().contains_key(id)
-    }
-
-    fn claim(&self, id: &str, steal: bool) -> Option<Arc<Notify>> {
-        let mut held = self.held.lock().unwrap();
-        if let Some(existing) = held.get(id) {
-            if !steal {
-                return None;
-            }
-            existing.notify_waiters();
-        }
-        let token = Arc::new(Notify::new());
-        held.insert(id.to_string(), token.clone());
-        Some(token)
-    }
-
-    fn release(&self, id: &str, token: &Arc<Notify>) {
-        let mut held = self.held.lock().unwrap();
-        // Only clear the slot if we still own it; a stealer may have replaced us.
-        if held.get(id).is_some_and(|cur| Arc::ptr_eq(cur, token)) {
-            held.remove(id);
-        }
-    }
-}
-
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
+        .with_writer(std::io::stderr)
         .init();
 
-    let args = Args::parse();
-    let cfg = Arc::new(config::load(&args.config)?);
-    let listen = args.listen.unwrap_or_else(|| cfg.listen.clone());
+    let cli = Cli::parse();
+    let sysfs = Sysfs::new(&cli.sysfs_root);
+    match cli.cmd.unwrap_or(Cmd::Serve { listen: None }) {
+        Cmd::Serve { listen } => serve(Config::load(&cli.config)?, sysfs, listen),
+        Cmd::Scan => scan(&sysfs),
+        Cmd::Release { devices } => release(&cli.config, &sysfs, &devices),
+    }
+}
 
-    let listener = TcpListener::bind(&listen).await?;
-    info!(
-        addr = %listener.local_addr()?,
-        devices = cfg.device.len(),
-        "usbridged listening"
-    );
+fn serve(cfg: Config, sysfs: Sysfs, listen: Option<String>) -> Result<()> {
+    sysfs.ensure_usbip_host()?;
     if cfg.device.is_empty() {
-        warn!("no devices configured; clients will see an empty list");
+        warn!("no [device.*] entries in the config; nothing will be exported");
     }
 
-    let registry = Arc::new(Registry::default());
+    let addr = listen.unwrap_or_else(|| cfg.listen.clone());
+    let listener = TcpListener::bind(&addr).with_context(|| format!("listening on {addr}"))?;
+    info!(%addr, "listening");
 
-    loop {
-        let (sock, peer) = listener.accept().await?;
-        sock.set_nodelay(true).ok();
+    let exports = Arc::new(Mutex::new(Exports::new(cfg, sysfs)));
+    exports.lock().unwrap().reconcile()?;
 
-        let cfg = cfg.clone();
-        let registry = registry.clone();
-        tokio::spawn(async move {
-            if let Err(e) = handle(sock, peer, cfg, registry).await {
-                warn!(%peer, error = %e, "session ended with error");
+    let ex = exports.clone();
+    thread::spawn(move || loop {
+        thread::sleep(POLL);
+        if let Err(e) = ex.lock().unwrap().reconcile() {
+            warn!(error = %e, "scanning USB devices failed");
+        }
+    });
+
+    for conn in listener.incoming() {
+        let sock = match conn {
+            Ok(s) => s,
+            Err(e) => {
+                warn!(error = %e, "accept failed");
+                continue;
+            }
+        };
+        let peer = sock.peer_addr().ok();
+        let ex = exports.clone();
+        thread::spawn(move || {
+            if let Err(e) = handle(sock, &ex) {
+                debug!(?peer, error = %format!("{e:#}"), "connection ended with error");
             }
         });
     }
+    Ok(())
 }
 
-async fn handle(
-    sock: tokio::net::TcpStream,
-    peer: SocketAddr,
-    cfg: Arc<Config>,
-    registry: Arc<Registry>,
-) -> Result<()> {
-    let mut conn: serial::Conn = Framed::new(sock, FrameCodec::new());
+fn handle(mut sock: TcpStream, exports: &Mutex<Exports>) -> Result<()> {
+    let peer: Option<SocketAddr> = sock.peer_addr().ok();
+    sock.set_read_timeout(Some(HANDSHAKE_TIMEOUT))?;
+    sock.set_write_timeout(Some(HANDSHAKE_TIMEOUT))?;
 
-    loop {
-        let Some(msg) = conn.next().await else {
-            return Ok(());
-        };
-        match msg? {
-            ClientMsg::Hello {
-                version,
-                client_name,
-            } => {
-                if version != PROTOCOL_VERSION {
-                    conn.send(ServerMsg::Error {
-                        code: ErrorCode::VersionMismatch,
-                        detail: format!("server speaks v{PROTOCOL_VERSION}, client sent v{version}"),
-                    })
-                    .await?;
-                    return Ok(());
+    match Request::read_from(&mut sock)? {
+        Request::DevList => {
+            let list = exports.lock().unwrap().list();
+            usbip::write_devlist_reply(&mut sock, &list)?;
+        }
+        Request::Import { busid: name } => {
+            let ex = exports.lock().unwrap();
+            let Some(dev) = ex.find(&name).cloned() else {
+                info!(?peer, device = %name, "import refused: not exported");
+                return Ok(usbip::write_import_reply(&mut sock, Err(Status::NoDevice))?);
+            };
+            let refusal = match ex.sysfs.stub_status(&dev.busid) {
+                Ok(StubStatus::Available) => None,
+                Ok(StubStatus::Used) => Some(Status::DeviceBusy),
+                Ok(StubStatus::Error) => Some(Status::DeviceError),
+                Err(e) => {
+                    warn!(device = %name, error = %e, "reading usbip_status failed");
+                    Some(Status::NotAvailable)
                 }
-                info!(%peer, client = %client_name, "hello");
-                conn.send(ServerMsg::Welcome {
-                    version: PROTOCOL_VERSION,
-                    server_name: cfg.name.clone(),
-                })
-                .await?;
+            };
+            if let Some(status) = refusal {
+                info!(?peer, device = %name, "import refused: {status}");
+                return Ok(usbip::write_import_reply(&mut sock, Err(status))?);
             }
 
-            ClientMsg::List => {
-                let devices = cfg
-                    .device
-                    .iter()
-                    .map(|(id, dev)| {
-                        let found = discovery::resolve(dev).ok().flatten();
-                        discovery::describe(id, dev, found.as_ref(), registry.is_busy(id))
-                    })
-                    .collect();
-                conn.send(ServerMsg::Devices(devices)).await?;
+            usbip::prepare_for_kernel(&sock)?;
+            // Same order as usbipd: the kernel owns the socket before the
+            // reply goes out, so no URB can arrive before it is listening.
+            if let Err(e) = ex.sysfs.hand_over_socket(&dev.busid, sock.as_raw_fd()) {
+                warn!(device = %name, error = %format!("{e:#}"), "handing socket to usbip-host failed");
+                return Ok(usbip::write_import_reply(
+                    &mut sock,
+                    Err(Status::NotAvailable),
+                )?);
             }
-
-            ClientMsg::Ping => conn.send(ServerMsg::Pong).await?,
-
-            ClientMsg::Attach {
-                id,
-                profile,
-                params,
-                steal,
-            } => {
-                let Some(dev) = cfg.device.get(&id) else {
-                    conn.send(ServerMsg::Error {
-                        code: ErrorCode::NoSuchDevice,
-                        detail: format!("{id:?} is not configured on this server"),
-                    })
-                    .await?;
-                    continue;
-                };
-                if profile != Profile::Serial || dev.profile() != Profile::Serial {
-                    conn.send(ServerMsg::Error {
-                        code: ErrorCode::ProfileMismatch,
-                        detail: "only the serial profile is implemented".into(),
-                    })
-                    .await?;
-                    continue;
-                }
-                let Some(token) = registry.claim(&id, steal) else {
-                    conn.send(ServerMsg::Error {
-                        code: ErrorCode::DeviceBusy,
-                        detail: format!("{id:?} is held by another client; retry with --steal"),
-                    })
-                    .await?;
-                    continue;
-                };
-
-                // Server config is authoritative for line settings unless the
-                // client explicitly asked for something other than the default.
-                let effective = if params == Default::default() {
-                    dev.params()
-                } else {
-                    params
-                };
-
-                conn.send(ServerMsg::Attached {
-                    id: id.clone(),
-                    params: effective,
-                })
-                .await?;
-
-                let result = serial::serve(&id, dev, &mut conn, effective, &token).await;
-                registry.release(&id, &token);
-                info!(%peer, device = %id, "detached");
-                return result;
-            }
-
-            other => {
-                conn.send(ServerMsg::Error {
-                    code: ErrorCode::Protocol,
-                    detail: format!("unexpected in control mode: {other:?}"),
-                })
-                .await?;
-            }
+            drop(ex);
+            usbip::write_import_reply(&mut sock, Ok(&dev.to_usbip(&name)))?;
+            info!(?peer, device = %name, busid = %dev.busid, "attached");
         }
     }
+    Ok(())
 }
 
-const _: () = assert!(DEFAULT_PORT == 7070);
+fn scan(sysfs: &Sysfs) -> Result<()> {
+    let devices = sysfs.scan()?;
+    if devices.is_empty() {
+        println!("no USB devices found");
+        return Ok(());
+    }
+    println!(
+        "{:<10} {:<10} {:<20} {:<16} DESCRIPTION",
+        "PORT", "USB ID", "SERIAL", "DRIVER"
+    );
+    for d in &devices {
+        let driver = match (d.driver.as_deref(), d.is_hub()) {
+            (_, true) => "(hub)".to_owned(),
+            (Some(sysfs::USBIP_HOST), _) => match sysfs.stub_status(&d.busid) {
+                Ok(StubStatus::Used) => "exported, in use".to_owned(),
+                _ => "exported".to_owned(),
+            },
+            (Some(drv), _) => drv.to_owned(),
+            (None, _) => "-".to_owned(),
+        };
+        println!(
+            "{:<10} {:04x}:{:04x}  {:<20} {:<16} {}",
+            d.busid,
+            d.vendor_id,
+            d.product_id,
+            d.serial.as_deref().unwrap_or("-"),
+            driver,
+            d.description()
+        );
+    }
+    println!(
+        "\nExport one by adding to the config, e.g.:\n\n  [device.mydevice]\n  vid = \"{:04x}\"\n  pid = \"{:04x}\"",
+        devices[0].vendor_id, devices[0].product_id
+    );
+    if let Some(s) = &devices[0].serial {
+        println!("  serial = \"{s}\"");
+    }
+    println!("\nUse `port = \"<PORT>\"` instead when identical devices have no serial.");
+    Ok(())
+}
+
+fn release(config: &std::path::Path, sysfs: &Sysfs, names: &[String]) -> Result<()> {
+    let cfg = Config::load(config).ok();
+    let devices = sysfs.scan()?;
+    for name in names {
+        let dev = match cfg.as_ref().and_then(|c| c.device.get(name)) {
+            Some(want) => devices
+                .iter()
+                .find(|d| want.matches(d) && d.is_bound_to_usbip()),
+            None => devices.iter().find(|d| d.busid == *name),
+        };
+        let Some(dev) = dev else {
+            bail!("{name:?} is not a configured id or a busid that is plugged in");
+        };
+        sysfs
+            .release(&dev.busid)
+            .with_context(|| format!("releasing {}", dev.busid))?;
+        println!("{name}: {} returned to the host", dev.busid);
+    }
+    Ok(())
+}

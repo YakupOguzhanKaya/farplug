@@ -1,5 +1,5 @@
 #!/bin/sh
-# Install the usbridge gateway. Linux only; needs no Rust toolchain.
+# Install the usbridge server. Linux only; needs no Rust toolchain.
 #
 #   curl -fsSL .../install-server.sh | sh
 #
@@ -11,11 +11,11 @@ REPO="${USBRIDGE_REPO:-YakupOguzhanKaya/usbridge}"
 PREFIX="${PREFIX:-/usr/local}"
 CONFDIR="${CONFDIR:-/etc/usbridge}"
 
-[ "$(uname -s)" = "Linux" ] || { echo "the gateway runs on Linux only" >&2; exit 1; }
+[ "$(uname -s)" = "Linux" ] || { echo "the server runs on Linux only" >&2; exit 1; }
 
 case "$(uname -m)" in
-    x86_64|amd64)  TARGET=x86_64-unknown-linux-gnu ;;
-    aarch64|arm64) TARGET=aarch64-unknown-linux-gnu ;;
+    x86_64|amd64)  TARGET=x86_64-unknown-linux-musl ;;
+    aarch64|arm64) TARGET=aarch64-unknown-linux-musl ;;
     *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
 esac
 
@@ -61,12 +61,17 @@ else
     echo "keeping existing $CONFDIR/config.toml"
 fi
 
+if ! sudo modprobe usbip-host 2>/dev/null; then
+    echo "warning: the usbip-host kernel module is missing. On Debian/Ubuntu install" >&2
+    echo "         linux-modules-extra-\$(uname -r) (or your distro's equivalent)." >&2
+fi
+
 if [ -d /run/systemd/system ]; then
-    id usbridge >/dev/null 2>&1 || sudo useradd --system --no-create-home --shell /usr/sbin/nologin usbridge
     sudo install -D -m0644 "$SRC/usbridged.service" /etc/systemd/system/usbridged.service
     sudo systemctl daemon-reload
     echo
-    echo "next:  sudo \$EDITOR $CONFDIR/config.toml"
+    echo "next:  sudo usbridged scan              # find your devices"
+    echo "       sudo \$EDITOR $CONFDIR/config.toml"
     echo "       sudo systemctl enable --now usbridged"
 else
     echo "no systemd detected; run $PREFIX/bin/usbridged --config $CONFDIR/config.toml yourself"

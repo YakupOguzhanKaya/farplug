@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=usbridge
+Comment=Use USB devices from another machine
+Exec=usbridge-gui
+Icon=drive-removable-media-usb
+Categories=System;Utility;

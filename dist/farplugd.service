@@ -1,11 +1,11 @@
 [Unit]
-Description=usbridge USB/IP server
+Description=farplug USB/IP server
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 ExecStartPre=-/sbin/modprobe usbip-host
-ExecStart=/usr/local/bin/usbridged --config /etc/usbridge/config.toml
+ExecStart=/usr/local/bin/farplugd --config /etc/farplug/config.toml
 Restart=always
 RestartSec=2
 Environment=RUST_LOG=info

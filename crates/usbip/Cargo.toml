@@ -1,5 +1,5 @@
 [package]
-name = "usbridge-usbip"
+name = "farplug-usbip"
 description = "USB/IP wire protocol (operation phase)"
 version.workspace = true
 edition.workspace = true

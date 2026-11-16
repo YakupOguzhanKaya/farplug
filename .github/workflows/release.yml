@@ -22,19 +22,19 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
       - run: cargo install cross --locked
-      - run: cross build --release --target ${{ matrix.target }} -p usbridged
+      - run: cross build --release --target ${{ matrix.target }} -p farplugd
       - name: package
         run: |
-          d=usbridged-${{ matrix.target }}
+          d=farplugd-${{ matrix.target }}
           mkdir -p "$d"
-          cp target/${{ matrix.target }}/release/usbridged "$d/"
-          cp config.example.toml dist/usbridged.service install/install-server.sh README.md "$d/"
+          cp target/${{ matrix.target }}/release/farplugd "$d/"
+          cp config.example.toml dist/farplugd.service install/install-server.sh README.md "$d/"
           tar czf "$d.tar.gz" "$d"
           sha256sum "$d.tar.gz" > "$d.tar.gz.sha256"
       - uses: actions/upload-artifact@v4
         with:
-          name: usbridged-${{ matrix.target }}
-          path: usbridged-*.tar.gz*
+          name: farplugd-${{ matrix.target }}
+          path: farplugd-*.tar.gz*
 
   client-linux:
     runs-on: ubuntu-latest
@@ -48,19 +48,19 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
       - run: cargo install cross --locked
-      - run: cross build --release --target ${{ matrix.target }} -p usbridge
+      - run: cross build --release --target ${{ matrix.target }} -p farplug
       - name: package
         run: |
-          d=usbridge-${{ matrix.target }}
+          d=farplug-${{ matrix.target }}
           mkdir -p "$d"
-          cp target/${{ matrix.target }}/release/usbridge "$d/"
-          cp install/install-client.sh dist/usbridge-agent.service README.md "$d/"
+          cp target/${{ matrix.target }}/release/farplug "$d/"
+          cp install/install-client.sh dist/farplug-agent.service README.md "$d/"
           tar czf "$d.tar.gz" "$d"
           sha256sum "$d.tar.gz" > "$d.tar.gz.sha256"
       - uses: actions/upload-artifact@v4
         with:
-          name: usbridge-${{ matrix.target }}
-          path: usbridge-*.tar.gz*
+          name: farplug-${{ matrix.target }}
+          path: farplug-*.tar.gz*
 
   # The GUI links GTK for the tray icon, so it is built natively per arch
   # against glibc rather than cross-compiled to musl like the CLI.
@@ -76,18 +76,18 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release -p usbridge-gui
+      - run: cargo build --release -p farplug-gui
       - name: package
         run: |
-          d=usbridge-gui-${{ matrix.target }}
+          d=farplug-gui-${{ matrix.target }}
           mkdir -p "$d"
-          cp target/release/usbridge-gui dist/usbridge.desktop dist/usbridge-tray.desktop "$d/"
+          cp target/release/farplug-gui dist/farplug.desktop dist/farplug-tray.desktop "$d/"
           tar czf "$d.tar.gz" "$d"
           sha256sum "$d.tar.gz" > "$d.tar.gz.sha256"
       - uses: actions/upload-artifact@v4
         with:
-          name: usbridge-gui-${{ matrix.target }}
-          path: usbridge-gui-*.tar.gz*
+          name: farplug-gui-${{ matrix.target }}
+          path: farplug-gui-*.tar.gz*
 
   # Attaching does not work on macOS yet; listing, the agent and the window do.
   client-macos:
@@ -99,24 +99,24 @@ jobs:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
       - run: |
-          cargo build --release --target aarch64-apple-darwin -p usbridge -p usbridge-gui
-          cargo build --release --target x86_64-apple-darwin -p usbridge -p usbridge-gui
+          cargo build --release --target aarch64-apple-darwin -p farplug -p farplug-gui
+          cargo build --release --target x86_64-apple-darwin -p farplug -p farplug-gui
       - name: package universal binaries
         run: |
-          d=usbridge-universal-apple-darwin
+          d=farplug-universal-apple-darwin
           mkdir -p "$d"
-          for b in usbridge usbridge-gui; do
+          for b in farplug farplug-gui; do
             lipo -create -output "$d/$b" \
               target/aarch64-apple-darwin/release/$b \
               target/x86_64-apple-darwin/release/$b
           done
-          cp install/install-client.sh dist/com.usbridge.agent.plist README.md "$d/"
+          cp install/install-client.sh dist/com.farplug.agent.plist README.md "$d/"
           tar czf "$d.tar.gz" "$d"
           shasum -a 256 "$d.tar.gz" > "$d.tar.gz.sha256"
       - uses: actions/upload-artifact@v4
         with:
-          name: usbridge-universal-apple-darwin
-          path: usbridge-*.tar.gz*
+          name: farplug-universal-apple-darwin
+          path: farplug-*.tar.gz*
 
   # Needs the usbip-win2 driver at runtime; install-client.ps1 installs it.
   client-windows:
@@ -130,19 +130,19 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release --target ${{ matrix.target }} -p usbridge -p usbridge-gui
+      - run: cargo build --release --target ${{ matrix.target }} -p farplug -p farplug-gui
       - name: package
         shell: pwsh
         run: |
-          $d = "usbridge-${{ matrix.target }}"
+          $d = "farplug-${{ matrix.target }}"
           New-Item -ItemType Directory $d | Out-Null
-          Copy-Item target/${{ matrix.target }}/release/usbridge.exe, target/${{ matrix.target }}/release/usbridge-gui.exe, README.md, install/install-client.ps1 $d
+          Copy-Item target/${{ matrix.target }}/release/farplug.exe, target/${{ matrix.target }}/release/farplug-gui.exe, README.md, install/install-client.ps1 $d
           Compress-Archive -Path $d -DestinationPath "$d.zip"
           "$((Get-FileHash "$d.zip" -Algorithm SHA256).Hash.ToLower())  $d.zip" | Out-File -Encoding ascii "$d.zip.sha256"
       - uses: actions/upload-artifact@v4
         with:
-          name: usbridge-${{ matrix.target }}
-          path: usbridge-*.zip*
+          name: farplug-${{ matrix.target }}
+          path: farplug-*.zip*
 
   publish:
     needs: [server, client-linux, gui-linux, client-macos, client-windows]

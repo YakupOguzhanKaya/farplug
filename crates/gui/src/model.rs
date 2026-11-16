@@ -7,10 +7,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use usbridge::ipc::{self, DeviceStatus, Request, Status};
-use usbridge::paths::Paths;
-use usbridge::Server;
-use usbridge_usbip::ExportedDevice;
+use farplug::ipc::{self, DeviceStatus, Request, Status};
+use farplug::paths::Paths;
+use farplug::Server;
+use farplug_usbip::ExportedDevice;
 
 const AGENT_POLL: Duration = Duration::from_secs(2);
 const SERVER_POLL: Duration = Duration::from_secs(5);
@@ -154,8 +154,8 @@ pub fn spawn(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use usbridge::ipc::DeviceState;
-    use usbridge_usbip::{Speed, UsbDevice};
+    use farplug::ipc::DeviceState;
+    use farplug_usbip::{Speed, UsbDevice};
 
     fn exported(id: &str) -> ExportedDevice {
         ExportedDevice {

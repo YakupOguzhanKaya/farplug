@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
-use usbridge_usbip::{ExportedDevice, Speed, UsbDevice, UsbInterface, PATH_LEN};
+use farplug_usbip::{ExportedDevice, Speed, UsbDevice, UsbInterface, PATH_LEN};
 
 pub const USBIP_HOST: &str = "usbip-host";
 const HUB_CLASS: u8 = 0x09;

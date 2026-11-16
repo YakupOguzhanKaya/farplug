@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
-use usbridge_usbip::{Speed, UsbDevice};
+use farplug_usbip::{Speed, UsbDevice};
 
 const VDEV_ST_NOTASSIGNED: u32 = 5;
 const VDEV_ST_USED: u32 = 6;

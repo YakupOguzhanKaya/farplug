@@ -20,7 +20,7 @@ DEVICE_DESC = struct.pack("<BBHBBBBHHHBBBB", 18, 1, 0x0200, 0xFF, 0, 0, 64,
                           0x1209, 0x0001, 0x0100, 1, 2, 3, 1)
 CONFIG_DESC = (struct.pack("<BBHBBBBB", 9, 2, 18, 1, 1, 0, 0x80, 50)
                + struct.pack("<BBBBBBBBB", 9, 4, 0, 0, 0, 0xFF, 0, 0, 0))
-STRINGS = ["usbridge", "Fake Device", "TEST0001"]
+STRINGS = ["farplug", "Fake Device", "TEST0001"]
 
 
 def string_desc(i):

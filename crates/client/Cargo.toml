@@ -1,15 +1,15 @@
 [package]
-name = "usbridge"
+name = "farplug"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
 [lib]
-name = "usbridge"
+name = "farplug"
 
 [dependencies]
-usbridge-usbip.workspace = true
+farplug-usbip.workspace = true
 
 anyhow.workspace = true
 clap.workspace = true

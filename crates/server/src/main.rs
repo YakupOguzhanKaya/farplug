@@ -11,8 +11,8 @@ use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
+use farplug_usbip::{self as usbip, Request, Status};
 use tracing::{debug, info, warn};
-use usbridge_usbip::{self as usbip, Request, Status};
 
 use config::Config;
 use exports::Exports;
@@ -27,8 +27,8 @@ struct Cli {
     #[arg(
         short,
         long,
-        env = "USBRIDGE_CONFIG",
-        default_value = "/etc/usbridge/config.toml"
+        env = "FARPLUG_CONFIG",
+        default_value = "/etc/farplug/config.toml"
     )]
     config: PathBuf,
     /// For tests: read and write a fake sysfs tree instead of /sys.

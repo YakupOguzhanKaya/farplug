@@ -1,7 +1,7 @@
 //! Starting sibling processes: the agent (Windows only, where it runs in the
 //! user's session instead of as a service) and the window from the tray.
 
-use usbridge::paths::Paths;
+use farplug::paths::Paths;
 
 #[cfg(windows)]
 fn sibling(name: &str) -> Option<std::path::PathBuf> {
@@ -19,7 +19,7 @@ pub fn open_window() {
     }
 }
 
-/// Starts `usbridge agent` once per process if none answers.
+/// Starts `farplug agent` once per process if none answers.
 #[cfg(windows)]
 pub fn ensure_agent(paths: &Paths) {
     use std::os::windows::process::CommandExt;
@@ -29,11 +29,11 @@ pub fn ensure_agent(paths: &Paths) {
     static TRIED: AtomicBool = AtomicBool::new(false);
 
     if TRIED.swap(true, Ordering::Relaxed)
-        || usbridge::ipc::call(paths, usbridge::ipc::Request::Status).is_ok()
+        || farplug::ipc::call(paths, farplug::ipc::Request::Status).is_ok()
     {
         return;
     }
-    let Some(exe) = sibling("usbridge") else {
+    let Some(exe) = sibling("farplug") else {
         return;
     };
     let log = paths

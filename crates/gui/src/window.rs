@@ -3,8 +3,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use eframe::egui::{self, Color32, RichText};
-use usbridge::ipc::DeviceState;
-use usbridge::paths::Paths;
+use farplug::ipc::DeviceState;
+use farplug::paths::Paths;
 
 use crate::model::{self, Action, Model};
 
@@ -14,13 +14,13 @@ const AMBER: Color32 = Color32::from_rgb(0xd2, 0x99, 0x22);
 pub fn run() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("usbridge")
+            .with_title("farplug")
             .with_inner_size([560.0, 420.0])
             .with_min_inner_size([420.0, 240.0]),
         ..Default::default()
     };
     eframe::run_native(
-        "usbridge",
+        "farplug",
         options,
         Box::new(|cc| {
             let ctx = cc.egui_ctx.clone();

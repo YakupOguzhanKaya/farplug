@@ -1,5 +1,5 @@
 #!/bin/sh
-# Install the usbridge server. Linux only; needs no Rust toolchain.
+# Install the farplug server. Linux only; needs no Rust toolchain.
 #
 #   curl -fsSL .../install-server.sh | sh
 #
@@ -7,9 +7,9 @@
 #   export GITHUB_TOKEN=ghp_...
 set -eu
 
-REPO="${USBRIDGE_REPO:-YakupOguzhanKaya/usbridge}"
+REPO="${FARPLUG_REPO:-YakupOguzhanKaya/farplug}"
 PREFIX="${PREFIX:-/usr/local}"
-CONFDIR="${CONFDIR:-/etc/usbridge}"
+CONFDIR="${CONFDIR:-/etc/farplug}"
 
 [ "$(uname -s)" = "Linux" ] || { echo "the server runs on Linux only" >&2; exit 1; }
 
@@ -27,12 +27,12 @@ fetch() {
     fi
 }
 
-TAG="${USBRIDGE_VERSION:-$(fetch "https://api.github.com/repos/$REPO/releases/latest" \
+TAG="${FARPLUG_VERSION:-$(fetch "https://api.github.com/repos/$REPO/releases/latest" \
     | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)}"
 [ -n "$TAG" ] || { echo "could not determine latest release; is the repo private? set GITHUB_TOKEN" >&2; exit 1; }
 
-ASSET="usbridged-$TARGET.tar.gz"
-echo "installing usbridged $TAG ($TARGET)"
+ASSET="farplugd-$TARGET.tar.gz"
+echo "installing farplugd $TAG ($TARGET)"
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
@@ -50,9 +50,9 @@ else
 fi
 
 tar xzf "$TMP/$ASSET" -C "$TMP"
-SRC="$TMP/usbridged-$TARGET"
+SRC="$TMP/farplugd-$TARGET"
 
-sudo install -D -m0755 "$SRC/usbridged" "$PREFIX/bin/usbridged"
+sudo install -D -m0755 "$SRC/farplugd" "$PREFIX/bin/farplugd"
 
 if [ ! -f "$CONFDIR/config.toml" ]; then
     sudo install -D -m0644 "$SRC/config.example.toml" "$CONFDIR/config.toml"
@@ -67,12 +67,12 @@ if ! sudo modprobe usbip-host 2>/dev/null; then
 fi
 
 if [ -d /run/systemd/system ]; then
-    sudo install -D -m0644 "$SRC/usbridged.service" /etc/systemd/system/usbridged.service
+    sudo install -D -m0644 "$SRC/farplugd.service" /etc/systemd/system/farplugd.service
     sudo systemctl daemon-reload
     echo
-    echo "next:  sudo usbridged scan              # find your devices"
+    echo "next:  sudo farplugd scan              # find your devices"
     echo "       sudo \$EDITOR $CONFDIR/config.toml"
-    echo "       sudo systemctl enable --now usbridged"
+    echo "       sudo systemctl enable --now farplugd"
 else
-    echo "no systemd detected; run $PREFIX/bin/usbridged --config $CONFDIR/config.toml yourself"
+    echo "no systemd detected; run $PREFIX/bin/farplugd --config $CONFDIR/config.toml yourself"
 fi

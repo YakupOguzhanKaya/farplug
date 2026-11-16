@@ -1256,6 +1256,61 @@ dependencies = [
 ]
 
 [[package]]
+name = "farplug"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "ctrlc",
+ "farplug-usbip",
+ "getrandom 0.2.17",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+ "tracing-subscriber",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "farplug-gui"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "eframe",
+ "farplug",
+ "farplug-usbip",
+ "gtk",
+ "tracing",
+ "tracing-subscriber",
+ "tray-icon",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "farplug-usbip"
+version = "0.3.0"
+dependencies = [
+ "socket2",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "farplugd"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "farplug-usbip",
+ "serde",
+ "socket2",
+ "tempfile",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3958,61 +4013,6 @@ dependencies = [
  "idna",
  "percent-encoding",
  "serde",
-]
-
-[[package]]
-name = "usbridge"
-version = "0.2.1"
-dependencies = [
- "anyhow",
- "clap",
- "ctrlc",
- "getrandom 0.2.17",
- "serde",
- "serde_json",
- "tempfile",
- "tracing",
- "tracing-subscriber",
- "usbridge-usbip",
- "windows-sys 0.59.0",
-]
-
-[[package]]
-name = "usbridge-gui"
-version = "0.2.1"
-dependencies = [
- "anyhow",
- "eframe",
- "gtk",
- "tracing",
- "tracing-subscriber",
- "tray-icon",
- "usbridge",
- "usbridge-usbip",
- "windows-sys 0.59.0",
-]
-
-[[package]]
-name = "usbridge-usbip"
-version = "0.2.1"
-dependencies = [
- "socket2",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "usbridged"
-version = "0.2.1"
-dependencies = [
- "anyhow",
- "clap",
- "serde",
- "socket2",
- "tempfile",
- "toml",
- "tracing",
- "tracing-subscriber",
- "usbridge-usbip",
 ]
 
 [[package]]

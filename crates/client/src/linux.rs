@@ -3,7 +3,7 @@
 use std::os::fd::AsRawFd;
 
 use anyhow::Result;
-use usbridge_usbip::{self as usbip, Request};
+use farplug_usbip::{self as usbip, Request};
 
 use crate::vhci::Vhci;
 use crate::{Attached, Backend, Server};

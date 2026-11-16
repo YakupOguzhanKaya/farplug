@@ -3,7 +3,7 @@ use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
-use usbridge_usbip::{self as usbip, ExportedDevice, Request, DEFAULT_PORT};
+use farplug_usbip::{self as usbip, ExportedDevice, Request, DEFAULT_PORT};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);

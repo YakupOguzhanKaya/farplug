@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
-Name=usbridge tray icon
-Comment=Quick access to usbridge devices
-Exec=usbridge-gui --tray
+Name=farplug tray icon
+Comment=Quick access to farplug devices
+Exec=farplug-gui --tray
 Icon=drive-removable-media-usb
 NoDisplay=true
 X-GNOME-Autostart-enabled=true

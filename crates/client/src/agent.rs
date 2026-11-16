@@ -153,10 +153,10 @@ impl Agent {
                     inner.servers.push(s.clone());
                 }
                 for id in devices {
-                    if id.is_empty() || id.len() > usbridge_usbip::MAX_BUSID {
+                    if id.is_empty() || id.len() > farplug_usbip::MAX_BUSID {
                         bail!(
                             "device id {id:?} must be 1 to {} characters",
-                            usbridge_usbip::MAX_BUSID
+                            farplug_usbip::MAX_BUSID
                         );
                     }
                     if !inner.workers.contains_key(&(s.clone(), id.clone())) {
@@ -279,7 +279,7 @@ fn publish(path: &Path, ep: &Endpoint) -> Result<()> {
     write_atomic(path, &serde_json::to_vec(ep)?, true)
 }
 
-/// `secret` files are readable by the owner and, on Unix, the `usbridge`
+/// `secret` files are readable by the owner and, on Unix, the `farplug`
 /// group if it exists, which is how desktop users get to use the agent.
 fn write_atomic(path: &Path, data: &[u8], secret: bool) -> Result<()> {
     if let Some(dir) = path.parent() {
@@ -299,7 +299,7 @@ fn write_atomic(path: &Path, data: &[u8], secret: bool) -> Result<()> {
     f.write_all(data)?;
     #[cfg(unix)]
     if secret {
-        if let Some(gid) = group_id("usbridge") {
+        if let Some(gid) = group_id("farplug") {
             use std::os::unix::fs::PermissionsExt;
             std::os::unix::fs::chown(&tmp, None, Some(gid))?;
             fs::set_permissions(&tmp, fs::Permissions::from_mode(0o640))?;

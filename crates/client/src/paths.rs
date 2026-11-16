@@ -11,7 +11,7 @@ pub struct Paths {
 
 impl Default for Paths {
     fn default() -> Self {
-        if let Some(dir) = env::var_os("USBRIDGE_AGENT_DIR") {
+        if let Some(dir) = env::var_os("FARPLUG_AGENT_DIR") {
             let dir = PathBuf::from(dir);
             return Self {
                 endpoint: dir.join("agent.json"),
@@ -30,7 +30,7 @@ impl Paths {
         let base = env::var_os("LOCALAPPDATA")
             .map(PathBuf::from)
             .unwrap_or_else(env::temp_dir)
-            .join("usbridge");
+            .join("farplug");
         Self {
             endpoint: base.join("agent.json"),
             state: base.join("state.json"),
@@ -43,7 +43,7 @@ impl Paths {
         let base = env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(env::temp_dir)
-            .join("Library/Application Support/usbridge");
+            .join("Library/Application Support/farplug");
         Self {
             endpoint: base.join("agent.json"),
             state: base.join("state.json"),
@@ -53,8 +53,8 @@ impl Paths {
     #[cfg(not(any(windows, target_os = "macos")))]
     fn platform() -> Self {
         Self {
-            endpoint: PathBuf::from("/run/usbridge/agent.json"),
-            state: PathBuf::from("/var/lib/usbridge/state.json"),
+            endpoint: PathBuf::from("/run/farplug/agent.json"),
+            state: PathBuf::from("/var/lib/farplug/state.json"),
         }
     }
 }

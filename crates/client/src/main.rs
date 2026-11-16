@@ -5,15 +5,15 @@ use std::thread;
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 
-use usbridge::ipc::{self, Request, Status};
-use usbridge::paths::Paths;
-use usbridge::{agent, backend, supervisor, Server};
+use farplug::ipc::{self, Request, Status};
+use farplug::paths::Paths;
+use farplug::{agent, backend, supervisor, Server};
 
 #[derive(Parser)]
-#[command(version, about = "Use USB devices exported by a usbridged server")]
+#[command(version, about = "Use USB devices exported by a farplugd server")]
 struct Cli {
     /// Server address, host or host:port.
-    #[arg(short, long, global = true, env = "USBRIDGE_SERVER")]
+    #[arg(short, long, global = true, env = "FARPLUG_SERVER")]
     server: Option<String>,
     #[command(subcommand)]
     cmd: Cmd,
@@ -61,7 +61,7 @@ fn main() -> Result<()> {
     let server = || -> Result<Server> {
         match &cli.server {
             Some(s) => Server::parse(s),
-            None => bail!("which server? pass --server or set USBRIDGE_SERVER"),
+            None => bail!("which server? pass --server or set FARPLUG_SERVER"),
         }
     };
     match cli.cmd {

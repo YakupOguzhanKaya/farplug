@@ -1,4 +1,4 @@
-//! The usbridge client: talking to servers, keeping devices attached, and the
+//! The farplug client: talking to servers, keeping devices attached, and the
 //! local agent that the CLI and GUI control.
 
 pub mod agent;

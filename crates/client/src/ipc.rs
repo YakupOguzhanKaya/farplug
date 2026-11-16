@@ -99,7 +99,7 @@ pub fn call(paths: &Paths, request: Request) -> Result<Status> {
     let ep = read_endpoint(paths)?;
     let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, ep.port));
     let mut sock = TcpStream::connect_timeout(&addr, TIMEOUT).map_err(|e| {
-        anyhow!("the usbridge agent is not running ({e}); start it with `usbridge agent`")
+        anyhow!("the farplug agent is not running ({e}); start it with `farplug agent`")
     })?;
     sock.set_read_timeout(Some(TIMEOUT))?;
     sock.set_write_timeout(Some(TIMEOUT))?;
@@ -121,11 +121,11 @@ fn read_endpoint(paths: &Paths) -> Result<Endpoint> {
     let text = match fs::read_to_string(p) {
         Ok(t) => t,
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            bail!("the usbridge agent is not running; start it with `usbridge agent`")
+            bail!("the farplug agent is not running; start it with `farplug agent`")
         }
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => bail!(
-            "no permission to read {}; add yourself to the `usbridge` group \
-             (sudo usermod -aG usbridge $USER) and log in again",
+            "no permission to read {}; add yourself to the `farplug` group \
+             (sudo usermod -aG farplug $USER) and log in again",
             p.display()
         ),
         Err(e) => return Err(e).with_context(|| format!("reading {}", p.display())),

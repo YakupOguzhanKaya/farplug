@@ -3,8 +3,8 @@
 use std::collections::{BTreeMap, HashMap};
 
 use anyhow::Result;
+use farplug_usbip::ExportedDevice;
 use tracing::{info, warn};
-use usbridge_usbip::ExportedDevice;
 
 use crate::config::Config;
 use crate::sysfs::{SysDevice, Sysfs};
@@ -121,7 +121,7 @@ impl Exports {
                     warn!(
                         busid = %d.busid,
                         "bound to usbip-host but not in the config; \
-                         `usbridged release {}` gives it back to the host",
+                         `farplugd release {}` gives it back to the host",
                         d.busid
                     );
                 }

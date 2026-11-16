@@ -1,10 +1,10 @@
-# usbridged configuration.
+# farplugd configuration.
 #
 # Each [device.<id>] block exports one USB device. Clients attach by <id>, so
 # keep it stable even if the hardware is replaced. Devices not listed here are
 # never touched.
 #
-# Run `sudo usbridged scan` to see what is plugged in and its vid/pid/serial.
+# Run `sudo farplugd scan` to see what is plugged in and its vid/pid/serial.
 # Every matcher you set must match; if several devices match, none is exported.
 
 listen = "0.0.0.0:3240"

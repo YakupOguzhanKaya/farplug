@@ -1,13 +1,13 @@
 [package]
-name = "usbridge-gui"
+name = "farplug-gui"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-usbridge.workspace = true
-usbridge-usbip.workspace = true
+farplug.workspace = true
+farplug-usbip.workspace = true
 
 anyhow.workspace = true
 eframe = "0.29"

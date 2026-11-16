@@ -3,14 +3,14 @@ resolver = "2"
 members = ["crates/usbip", "crates/server", "crates/client", "crates/gui"]
 
 [workspace.package]
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT"
 
 [workspace.dependencies]
-usbridge-usbip = { path = "crates/usbip" }
-usbridge = { path = "crates/client" }
+farplug-usbip = { path = "crates/usbip" }
+farplug = { path = "crates/client" }
 
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }

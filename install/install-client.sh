@@ -1,5 +1,5 @@
 #!/bin/sh
-# Install the usbridge client. Linux, macOS, or Windows from Git Bash; needs
+# Install the farplug client. Linux, macOS, or Windows from Git Bash; needs
 # no Rust toolchain.
 #
 #   curl -fsSL .../install-client.sh | sh
@@ -10,7 +10,7 @@
 #   export GITHUB_TOKEN=ghp_...
 set -eu
 
-REPO="${USBRIDGE_REPO:-YakupOguzhanKaya/usbridge}"
+REPO="${FARPLUG_REPO:-YakupOguzhanKaya/farplug}"
 PREFIX="${PREFIX:-/usr/local}"
 
 fetch() {
@@ -25,7 +25,7 @@ case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*)
         # Git Bash and friends: the PowerShell installer does the Windows work.
         PS1="$(mktemp -d)/install-client.ps1"
-        fetch -o "$PS1" "https://raw.githubusercontent.com/$REPO/${USBRIDGE_BRANCH:-master}/install/install-client.ps1"
+        fetch -o "$PS1" "https://raw.githubusercontent.com/$REPO/${FARPLUG_BRANCH:-master}/install/install-client.ps1"
         exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$PS1")"
         ;;
     Darwin) TARGET=universal-apple-darwin ;;
@@ -38,12 +38,12 @@ case "$(uname -s)" in
     *) echo "unsupported system: $(uname -s)" >&2; exit 1 ;;
 esac
 
-TAG="${USBRIDGE_VERSION:-$(fetch "https://api.github.com/repos/$REPO/releases/latest" \
+TAG="${FARPLUG_VERSION:-$(fetch "https://api.github.com/repos/$REPO/releases/latest" \
     | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)}"
 [ -n "$TAG" ] || { echo "could not determine latest release; is the repo private? set GITHUB_TOKEN" >&2; exit 1; }
 
-ASSET="usbridge-$TARGET.tar.gz"
-echo "installing usbridge $TAG ($TARGET)"
+ASSET="farplug-$TARGET.tar.gz"
+echo "installing farplug $TAG ($TARGET)"
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
@@ -63,40 +63,40 @@ download() {
 
 download "$ASSET" || exit 1
 tar xzf "$TMP/$ASSET" -C "$TMP"
-SRC="$TMP/usbridge-$TARGET"
+SRC="$TMP/farplug-$TARGET"
 
 if [ -w "$PREFIX/bin" ]; then
-    install -d "$PREFIX/bin" && install -m0755 "$SRC/usbridge" "$PREFIX/bin/usbridge"
+    install -d "$PREFIX/bin" && install -m0755 "$SRC/farplug" "$PREFIX/bin/farplug"
 else
-    sudo install -D -m0755 "$SRC/usbridge" "$PREFIX/bin/usbridge"
+    sudo install -D -m0755 "$SRC/farplug" "$PREFIX/bin/farplug"
 fi
 
 # Gatekeeper quarantines anything fetched by curl; the binary is unsigned.
-[ "$(uname -s)" = "Darwin" ] && xattr -d com.apple.quarantine "$PREFIX/bin/usbridge" 2>/dev/null || true
+[ "$(uname -s)" = "Darwin" ] && xattr -d com.apple.quarantine "$PREFIX/bin/farplug" 2>/dev/null || true
 
 echo
-echo "installed $PREFIX/bin/usbridge"
+echo "installed $PREFIX/bin/farplug"
 
 if [ "$(uname -s)" = "Darwin" ]; then
     if [ -w "$PREFIX/bin" ]; then
-        install -m0755 "$SRC/usbridge-gui" "$PREFIX/bin/usbridge-gui"
+        install -m0755 "$SRC/farplug-gui" "$PREFIX/bin/farplug-gui"
     else
-        sudo install -m0755 "$SRC/usbridge-gui" "$PREFIX/bin/usbridge-gui"
+        sudo install -m0755 "$SRC/farplug-gui" "$PREFIX/bin/farplug-gui"
     fi
-    xattr -d com.apple.quarantine "$PREFIX/bin/usbridge-gui" 2>/dev/null || true
+    xattr -d com.apple.quarantine "$PREFIX/bin/farplug-gui" 2>/dev/null || true
 
     # The agent runs per user as a LaunchAgent, started now and at every login.
-    PLIST="$HOME/Library/LaunchAgents/com.usbridge.agent.plist"
+    PLIST="$HOME/Library/LaunchAgents/com.farplug.agent.plist"
     mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
-    sed -e "s|@HOME@|$HOME|g" -e "s|/usr/local/bin/usbridge|$PREFIX/bin/usbridge|" \
-        "$SRC/com.usbridge.agent.plist" > "$PLIST"
-    launchctl bootout "gui/$(id -u)/com.usbridge.agent" 2>/dev/null || true
+    sed -e "s|@HOME@|$HOME|g" -e "s|/usr/local/bin/farplug|$PREFIX/bin/farplug|" \
+        "$SRC/com.farplug.agent.plist" > "$PLIST"
+    launchctl bootout "gui/$(id -u)/com.farplug.agent" 2>/dev/null || true
     launchctl bootstrap "gui/$(id -u)" "$PLIST"
 
-    echo "started the usbridge agent (log: ~/Library/Logs/usbridge-agent.log)"
+    echo "started the farplug agent (log: ~/Library/Logs/farplug-agent.log)"
     echo "note: attaching devices does not work on macOS yet; listing and the GUI do"
-    echo "try:   usbridge --server <server-host> list"
-    echo "       usbridge-gui"
+    echo "try:   farplug --server <server-host> list"
+    echo "       farplug-gui"
     exit 0
 fi
 
@@ -105,30 +105,30 @@ if ! sudo modprobe vhci-hcd 2>/dev/null; then
     echo "         linux-modules-extra-\$(uname -r) (or your distro's equivalent)." >&2
 fi
 if [ -d /run/systemd/system ]; then
-    getent group usbridge >/dev/null || sudo groupadd --system usbridge
-    sudo usermod -aG usbridge "$(id -un)"
-    sudo install -D -m0644 "$SRC/usbridge-agent.service" /etc/systemd/system/usbridge-agent.service
+    getent group farplug >/dev/null || sudo groupadd --system farplug
+    sudo usermod -aG farplug "$(id -un)"
+    sudo install -D -m0644 "$SRC/farplug-agent.service" /etc/systemd/system/farplug-agent.service
     sudo systemctl daemon-reload
-    sudo systemctl enable --now usbridge-agent
-    echo "started usbridge-agent; log out and in again so the usbridge group applies"
+    sudo systemctl enable --now farplug-agent
+    echo "started farplug-agent; log out and in again so the farplug group applies"
 else
-    echo "no systemd detected; run 'sudo usbridge agent' yourself"
+    echo "no systemd detected; run 'sudo farplug agent' yourself"
 fi
 
 # On a desktop, also install the GUI and start its tray icon at login.
-if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] || [ "${USBRIDGE_GUI:-}" = 1 ]; then
-    GUI="usbridge-gui-$(echo "$TARGET" | sed 's/musl$/gnu/')"
+if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] || [ "${FARPLUG_GUI:-}" = 1 ]; then
+    GUI="farplug-gui-$(echo "$TARGET" | sed 's/musl$/gnu/')"
     if download "$GUI.tar.gz" 2>/dev/null; then
         tar xzf "$TMP/$GUI.tar.gz" -C "$TMP"
-        sudo install -D -m0755 "$TMP/$GUI/usbridge-gui" "$PREFIX/bin/usbridge-gui"
-        sudo install -D -m0644 "$TMP/$GUI/usbridge.desktop" /usr/share/applications/usbridge.desktop
-        install -D -m0644 "$TMP/$GUI/usbridge-tray.desktop" "$HOME/.config/autostart/usbridge-tray.desktop"
-        echo "installed usbridge-gui; the tray icon starts at your next login"
+        sudo install -D -m0755 "$TMP/$GUI/farplug-gui" "$PREFIX/bin/farplug-gui"
+        sudo install -D -m0644 "$TMP/$GUI/farplug.desktop" /usr/share/applications/farplug.desktop
+        install -D -m0644 "$TMP/$GUI/farplug-tray.desktop" "$HOME/.config/autostart/farplug-tray.desktop"
+        echo "installed farplug-gui; the tray icon starts at your next login"
         echo "(the tray icon needs libayatana-appindicator3-1, or on GNOME the AppIndicator extension)"
     else
         echo "warning: could not download $GUI.tar.gz; skipping the GUI" >&2
     fi
 fi
 
-echo "try:   usbridge --server <server-host> list"
-echo "then:  usbridge --server <server-host> attach <device-id>   (or open usbridge-gui)"
+echo "try:   farplug --server <server-host> list"
+echo "then:  farplug --server <server-host> attach <device-id>   (or open farplug-gui)"

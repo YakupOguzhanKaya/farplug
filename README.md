@@ -1,11 +1,11 @@
-# usbridge
+# farplug
 
 Share the USB devices plugged into a Linux box with other machines on your
 network. On the client, a device shows up as if it were plugged in locally:
 `lsusb` lists it and the client's own drivers handle it.
 
 It speaks the standard [USB/IP] protocol and lets the Linux kernel move the
-USB traffic (`usbip-host` on the server, `vhci_hcd` on the client). usbridge
+USB traffic (`usbip-host` on the server, `vhci_hcd` on the client). farplug
 adds what the stock `usbip` tools leave to you:
 
 - **Devices are chosen by VID/PID/serial or physical port**, not by bus number,
@@ -13,10 +13,10 @@ adds what the stock `usbip` tools leave to you:
 - **Hotplug on the server.** A configured device is exported as soon as it is
   plugged in and re-exported after a replug or a reboot. Unlisted devices are
   never touched.
-- **Clients reconnect on their own.** `usbridge attach` keeps devices attached
+- **Clients reconnect on their own.** `farplug attach` keeps devices attached
   through server restarts, network drops and replugs.
 
-Restarting `usbridged` does not disconnect clients: the kernel owns attached
+Restarting `farplugd` does not disconnect clients: the kernel owns attached
 connections, not the daemon.
 
 [USB/IP]: https://docs.kernel.org/usb/usbip_protocol.html
@@ -29,7 +29,7 @@ connections, not the daemon.
 | Windows | — | written, not yet tested on Windows (x64 and ARM64, uses [usbip-win2]) |
 | macOS | — | everything but attaching: the agent, `list`, `status` and the window run; attach reports "not supported yet" |
 
-On Windows, usbridge drives the [usbip-win2] kernel driver, which is signed
+On Windows, farplug drives the [usbip-win2] kernel driver, which is signed
 by Microsoft. Install usbip-win2 first; it was written against 0.9.8.1. The
 macOS client will use Apple's `IOUSBHostControllerInterface`, a user-space
 virtual host controller. It needs a managed entitlement from Apple.
@@ -43,24 +43,24 @@ Prebuilt static binaries, no Rust toolchain required.
 **Server** (Linux x86-64 or arm64):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/YakupOguzhanKaya/usbridge/master/install/install-server.sh | sh
+curl -fsSL https://raw.githubusercontent.com/YakupOguzhanKaya/farplug/master/install/install-server.sh | sh
 ```
 
 **Client** (Linux x86-64/arm64, macOS):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/YakupOguzhanKaya/usbridge/master/install/install-client.sh | sh
+curl -fsSL https://raw.githubusercontent.com/YakupOguzhanKaya/farplug/master/install/install-client.sh | sh
 ```
 
 **Client on Windows** (x64 or ARM64): the `curl … | sh` line above works from
 Git Bash. Without Git Bash, run this in PowerShell instead:
 
 ```powershell
-irm https://raw.githubusercontent.com/YakupOguzhanKaya/usbridge/master/install/install-client.ps1 | iex
+irm https://raw.githubusercontent.com/YakupOguzhanKaya/farplug/master/install/install-client.ps1 | iex
 ```
 
-It installs per user, without admin rights, into `%LOCALAPPDATA%\Programs\usbridge`.
-It adds `usbridge` to your `PATH`, adds a Start menu entry, and starts the tray
+It installs per user, without admin rights, into `%LOCALAPPDATA%\Programs\farplug`.
+It adds `farplug` to your `PATH`, adds a Start menu entry, and starts the tray
 icon at every login. If the [usbip-win2] driver is missing, it installs it,
 which needs one administrator approval. To uninstall:
 `& ([scriptblock]::Create((irm <same url>))) -Uninstall`.
@@ -80,9 +80,9 @@ images they are in `linux-modules-extra-$(uname -r)`.
 On the server:
 
 ```sh
-sudo usbridged scan                   # what is plugged in, with vid/pid/serial
-sudo $EDITOR /etc/usbridge/config.toml
-sudo systemctl enable --now usbridged
+sudo farplugd scan                   # what is plugged in, with vid/pid/serial
+sudo $EDITOR /etc/farplug/config.toml
+sudo systemctl enable --now farplugd
 ```
 
 ```toml
@@ -92,19 +92,19 @@ pid = "ea60"
 serial = "0001"
 ```
 
-On a client, the `usbridge-agent` service owns the attachments. It keeps
+On a client, the `farplug-agent` service owns the attachments. It keeps
 devices attached through disconnects and re-attaches them after a reboot,
 until you detach them. The CLI only gives it orders:
 
 ```sh
-usbridge --server usbgw.local list
-usbridge --server usbgw.local attach zigbee
-usbridge status
-usbridge detach zigbee
+farplug --server usbgw.local list
+farplug --server usbgw.local attach zigbee
+farplug status
+farplug detach zigbee
 ```
 
-Or use the GUI: `usbridge-gui` opens a window listing your servers and their
-devices, with an Attach/Detach button for each. `usbridge-gui --tray` puts an
+Or use the GUI: `farplug-gui` opens a window listing your servers and their
+devices, with an Attach/Detach button for each. `farplug-gui --tray` puts an
 icon in the system tray with a checkbox per device; its color is green when
 everything is attached, amber while something is reconnecting, and grey when
 nothing is attached. The installer sets the tray icon to start at login on
@@ -113,15 +113,15 @@ Linux and Windows desktops. The GUI is only a remote: closing it leaves devices 
 On Windows there is no service. The agent runs in your session, and the GUI
 starts it if it is not running.
 
-On Linux, members of the `usbridge` group can control the agent without
-`sudo`; the client installer adds you. `usbridge attach --foreground` attaches
+On Linux, members of the `farplug` group can control the agent without
+`sudo`; the client installer adds you. `farplug attach --foreground` attaches
 without the agent, until Ctrl-C, which needs root on Linux.
 
 The stock tools also work against the server:
 `usbip attach -r usbgw.local -b zigbee`.
 
 To give a device back to the server's own drivers, remove it from the config
-and run `sudo usbridged release zigbee`.
+and run `sudo farplugd release zigbee`.
 
 ## Known limits
 
@@ -135,7 +135,7 @@ and run `sudo usbridged release zigbee`.
 ## Build and test
 
 ```sh
-cargo build --release      # target/release/usbridged, target/release/usbridge
+cargo build --release      # target/release/farplugd, target/release/farplug
 cargo test
 tests/run-e2e.sh           # end-to-end, in a privileged Docker container
 ```

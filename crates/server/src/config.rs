@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
+use farplug_usbip::{DEFAULT_PORT, MAX_BUSID};
 use serde::Deserialize;
-use usbridge_usbip::{DEFAULT_PORT, MAX_BUSID};
 
 use crate::sysfs::SysDevice;
 

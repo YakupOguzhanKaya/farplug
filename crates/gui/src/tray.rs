@@ -7,10 +7,10 @@ use std::thread;
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
+use farplug::ipc::DeviceState;
+use farplug::paths::Paths;
 use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIconBuilder};
-use usbridge::ipc::DeviceState;
-use usbridge::paths::Paths;
 
 use crate::launch;
 use crate::model::{self, Action, Model};
@@ -32,7 +32,7 @@ pub fn run() -> Result<()> {
     let (model, actions) = model::spawn(Paths::default(), || {});
     let mut health = Health::Idle;
     let tray = TrayIconBuilder::new()
-        .with_tooltip("usbridge")
+        .with_tooltip("farplug")
         .with_icon(icon(health))
         .with_menu(Box::new(Menu::new()))
         .build()
@@ -127,7 +127,7 @@ fn build_menu(m: &Model) -> Result<Menu> {
             .map_err(err)?,
         Some(Ok(_)) if m.servers().is_empty() => menu
             .append(&MenuItem::new(
-                "No servers yet; open usbridge to add one",
+                "No servers yet; open farplug to add one",
                 false,
                 None,
             ))
@@ -156,7 +156,7 @@ fn build_menu(m: &Model) -> Result<Menu> {
         }
     }
     menu.append(&PredefinedMenuItem::separator()).map_err(err)?;
-    menu.append(&MenuItem::with_id("open", "Open usbridge…", true, None))
+    menu.append(&MenuItem::with_id("open", "Open farplug…", true, None))
         .map_err(err)?;
     menu.append(&MenuItem::with_id("quit", "Quit tray icon", true, None))
         .map_err(err)?;
@@ -165,7 +165,7 @@ fn build_menu(m: &Model) -> Result<Menu> {
 
 fn tooltip(m: &Model) -> String {
     let Some(Ok(s)) = &m.agent else {
-        return "usbridge: agent unavailable".into();
+        return "farplug: agent unavailable".into();
     };
     let attached = s
         .devices
@@ -174,8 +174,8 @@ fn tooltip(m: &Model) -> String {
         .count();
     let waiting = s.devices.len() - attached;
     match waiting {
-        0 => format!("usbridge: {attached} attached"),
-        n => format!("usbridge: {attached} attached, {n} reconnecting"),
+        0 => format!("farplug: {attached} attached"),
+        n => format!("farplug: {attached} attached, {n} reconnecting"),
     }
 }
 

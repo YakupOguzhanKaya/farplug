@@ -4,6 +4,11 @@
 #
 #   curl -fsSL .../install-client.sh | sh
 #
+# Uninstall (devices are detached first; remembered servers and devices stay
+# unless you pass --purge):
+#
+#   curl -fsSL .../install-client.sh | sh -s -- --uninstall [--purge]
+#
 # On Windows without Git Bash, use install-client.ps1 from PowerShell instead.
 #
 # For a private repository, export a token with 'repo' scope first:
@@ -21,11 +26,59 @@ fetch() {
     fi
 }
 
+UNINSTALL=0 PURGE=0
+for arg in "$@"; do
+    case "$arg" in
+        --uninstall) UNINSTALL=1 ;;
+        --purge) UNINSTALL=1 PURGE=1 ;;
+        *) echo "unknown option: $arg" >&2; exit 1 ;;
+    esac
+done
+
+as_root() {
+    if [ -w "$PREFIX/bin" ]; then "$@"; else sudo "$@"; fi
+}
+
+uninstall_macos() {
+    # Unloading the agent stops it, which detaches its devices.
+    launchctl bootout "gui/$(id -u)/com.farplug.agent" 2>/dev/null || true
+    rm -f "$HOME/Library/LaunchAgents/com.farplug.agent.plist"
+    pkill -x farplug-gui 2>/dev/null || true
+    as_root rm -f "$PREFIX/bin/farplug" "$PREFIX/bin/farplug-gui"
+    if [ "$PURGE" = 1 ]; then
+        rm -rf "$HOME/Library/Application Support/farplug" "$HOME/Library/Logs/farplug-agent.log"
+    fi
+}
+
+uninstall_linux() {
+    pkill -f 'farplug-gui --tray' 2>/dev/null || true
+    systemctl --user disable farplug-tray 2>/dev/null || true
+    sudo rm -f /etc/systemd/user/farplug-tray.service /usr/share/applications/farplug.desktop
+    systemctl --user daemon-reload 2>/dev/null || true
+    rm -f "$HOME/.config/autostart/farplug-tray.desktop"
+    # Stopping the agent detaches every device it holds.
+    if [ -d /run/systemd/system ]; then
+        sudo systemctl disable --now farplug-agent 2>/dev/null || true
+        sudo rm -f /etc/systemd/system/farplug-agent.service
+        sudo systemctl daemon-reload
+    else
+        sudo pkill -TERM -f 'farplug agent' 2>/dev/null || true
+    fi
+    sudo rm -f "$PREFIX/bin/farplug" "$PREFIX/bin/farplug-gui"
+    if [ "$PURGE" = 1 ]; then
+        sudo rm -rf /var/lib/farplug
+        if getent group farplug >/dev/null; then sudo groupdel farplug; fi
+    fi
+}
+
 case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*)
         # Git Bash and friends: the PowerShell installer does the Windows work.
         PS1="$(mktemp -d)/install-client.ps1"
         fetch -o "$PS1" "https://raw.githubusercontent.com/$REPO/${FARPLUG_BRANCH:-master}/install/install-client.ps1"
+        if [ "$UNINSTALL" = 1 ]; then
+            exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$PS1")" -Uninstall
+        fi
         exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$PS1")"
         ;;
     Darwin) TARGET=universal-apple-darwin ;;
@@ -37,6 +90,16 @@ case "$(uname -s)" in
         esac ;;
     *) echo "unsupported system: $(uname -s)" >&2; exit 1 ;;
 esac
+
+if [ "$UNINSTALL" = 1 ]; then
+    if [ "$(uname -s)" = Darwin ]; then uninstall_macos; else uninstall_linux; fi
+    if [ "$PURGE" = 1 ]; then
+        echo "farplug removed, with its saved servers and devices"
+    else
+        echo "farplug removed; kept its saved servers and devices (add --purge to delete them)"
+    fi
+    exit 0
+fi
 
 TAG="${FARPLUG_VERSION:-$(fetch "https://api.github.com/repos/$REPO/releases/latest" \
     | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)}"

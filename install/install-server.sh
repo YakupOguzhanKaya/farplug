@@ -3,6 +3,11 @@
 #
 #   curl -fsSL .../install-server.sh | sh
 #
+# Uninstall (exported devices go back to this machine; the config stays
+# unless you pass --purge):
+#
+#   curl -fsSL .../install-server.sh | sh -s -- --uninstall [--purge]
+#
 # For a private repository, export a token with 'repo' scope first:
 #   export GITHUB_TOKEN=ghp_...
 set -eu
@@ -12,6 +17,40 @@ PREFIX="${PREFIX:-/usr/local}"
 CONFDIR="${CONFDIR:-/etc/farplug}"
 
 [ "$(uname -s)" = "Linux" ] || { echo "the server runs on Linux only" >&2; exit 1; }
+
+UNINSTALL=0 PURGE=0
+for arg in "$@"; do
+    case "$arg" in
+        --uninstall) UNINSTALL=1 ;;
+        --purge) UNINSTALL=1 PURGE=1 ;;
+        *) echo "unknown option: $arg" >&2; exit 1 ;;
+    esac
+done
+
+if [ "$UNINSTALL" = 1 ]; then
+    if [ -d /run/systemd/system ]; then
+        sudo systemctl disable --now farplugd 2>/dev/null || true
+        sudo rm -f /etc/systemd/system/farplugd.service
+        sudo systemctl daemon-reload
+    fi
+    # Stopping the server leaves devices bound to usbip-host on purpose;
+    # give them back to this machine's own drivers.
+    if [ -x "$PREFIX/bin/farplugd" ]; then
+        for d in /sys/bus/usb/drivers/usbip-host/*-*; do
+            busid=$(basename "$d")
+            case "$busid" in *:*|"*-*") continue ;; esac
+            sudo "$PREFIX/bin/farplugd" release "$busid" || true
+        done
+    fi
+    sudo rm -f "$PREFIX/bin/farplugd"
+    if [ "$PURGE" = 1 ]; then
+        sudo rm -rf "$CONFDIR"
+        echo "farplugd removed, and $CONFDIR with it"
+    else
+        echo "farplugd removed; kept $CONFDIR (add --purge to delete it)"
+    fi
+    exit 0
+fi
 
 case "$(uname -m)" in
     x86_64|amd64)  TARGET=x86_64-unknown-linux-musl ;;

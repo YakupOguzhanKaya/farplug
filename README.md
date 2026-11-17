@@ -62,18 +62,24 @@ irm https://raw.githubusercontent.com/YakupOguzhanKaya/farplug/master/install/in
 It installs per user, without admin rights, into `%LOCALAPPDATA%\Programs\farplug`.
 It adds `farplug` to your `PATH`, adds a Start menu entry, and starts the tray
 icon at every login. If the [usbip-win2] driver is missing, it installs it,
-which needs one administrator approval. To uninstall:
-`& ([scriptblock]::Create((irm <same url>))) -Uninstall`.
+which needs one administrator approval.
 
 Both sides need the USB/IP kernel modules: `usbip-host` on the server and
 `vhci-hcd` on the client. Most distros ship them. On Debian or Ubuntu cloud
 images they are in `linux-modules-extra-$(uname -r)`.
 
-> **This repository is private.** Both scripts, and the `raw.githubusercontent`
-> URLs above, need a token to reach it:
-> `export GITHUB_TOKEN=ghp_...` before running, and fetch the script itself with
-> `curl -H "Authorization: Bearer $GITHUB_TOKEN"`. Making the repo public removes
-> this entirely.
+**Uninstall** with the same command plus `--uninstall`. Devices are detached
+(on a client) or given back to the machine (on the server) first. The server
+config and the client's saved servers and devices stay unless you also pass
+`--purge`:
+
+```sh
+curl -fsSL .../install-server.sh | sh -s -- --uninstall [--purge]
+curl -fsSL .../install-client.sh | sh -s -- --uninstall [--purge]
+```
+
+In PowerShell: `& ([scriptblock]::Create((irm <install-client.ps1 url>))) -Uninstall`.
+The usbip-win2 driver stays installed; remove it under Settings > Apps.
 
 ## Set up
 

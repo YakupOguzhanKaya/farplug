@@ -27,10 +27,20 @@ pub struct Model {
 }
 
 pub enum Action {
-    Attach { server: String, id: String },
-    Detach { server: String, id: String },
+    Attach {
+        server: String,
+        id: String,
+    },
+    Detach {
+        server: String,
+        id: String,
+    },
     AddServer(String),
     RemoveServer(String),
+    SetAlias {
+        server: String,
+        alias: Option<String>,
+    },
 }
 
 /// One line of a server's device table.
@@ -64,6 +74,13 @@ impl Row<'_> {
 }
 
 impl Model {
+    pub fn alias(&self, server: &str) -> Option<&str> {
+        match &self.agent {
+            Some(Ok(s)) => s.aliases.get(server).map(String::as_str),
+            _ => None,
+        }
+    }
+
     pub fn servers(&self) -> Vec<String> {
         match &self.agent {
             Some(Ok(s)) => s.servers.clone(),
@@ -141,6 +158,7 @@ pub fn spawn(
             },
             Some(Action::AddServer(server)) => Request::AddServer { server },
             Some(Action::RemoveServer(server)) => Request::RemoveServer { server },
+            Some(Action::SetAlias { server, alias }) => Request::SetAlias { server, alias },
         };
         let is_action = req != Request::Status;
         let result = ipc::call(&paths, req);
@@ -233,6 +251,7 @@ mod tests {
         let mut m = Model::default();
         m.agent = Some(Ok(Status {
             servers: vec!["gw:3240".into()],
+            aliases: Default::default(),
             devices: vec![
                 DeviceStatus {
                     server: "gw:3240".into(),

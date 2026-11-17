@@ -13,7 +13,7 @@ use farplug_usbip::DeviceInfo;
 #[derive(Parser)]
 #[command(version, about = "Use USB devices exported by a farplugd server")]
 struct Cli {
-    /// Server address, host or host:port.
+    /// Server address, host or host:port, or a name given with `alias`.
     #[arg(short, long, global = true, env = "FARPLUG_SERVER")]
     server: Option<String>,
     #[command(subcommand)]
@@ -45,6 +45,16 @@ enum Cmd {
     Check,
     /// Show what the agent is keeping attached.
     Status,
+    /// Give a server a name to show instead of its address, and to use with
+    /// --server.
+    Alias {
+        server: String,
+        #[arg(required_unless_present = "remove")]
+        name: Option<String>,
+        /// Remove the server's name.
+        #[arg(long, conflicts_with = "name")]
+        remove: bool,
+    },
     /// Run the agent that owns attachments (normally started as a service).
     Agent,
 }
@@ -61,7 +71,7 @@ fn main() -> Result<()> {
     let paths = Paths::default();
     let server = || -> Result<Server> {
         match &cli.server {
-            Some(s) => Server::parse(s),
+            Some(s) => resolve_alias(&paths, s),
             None => bail!("which server? pass --server or set FARPLUG_SERVER"),
         }
     };
@@ -97,7 +107,10 @@ fn main() -> Result<()> {
             print_status(&ipc::call(
                 &paths,
                 Request::Detach {
-                    server: if all { None } else { cli.server.clone() },
+                    server: match (&cli.server, all) {
+                        (Some(_), false) => Some(server()?.to_string()),
+                        _ => None,
+                    },
                     devices,
                 },
             )?)
@@ -108,8 +121,34 @@ fn main() -> Result<()> {
             Ok(())
         }
         Cmd::Status => print_status(&ipc::call(&paths, Request::Status)?),
+        Cmd::Alias {
+            server: s,
+            name,
+            remove,
+        } => {
+            let target = resolve_alias(&paths, &s)?.to_string();
+            let status = ipc::call(
+                &paths,
+                Request::SetAlias {
+                    server: target.clone(),
+                    alias: if remove { None } else { name },
+                },
+            )?;
+            println!("{}", status.display(&target));
+            Ok(())
+        }
         Cmd::Agent => agent::run(paths),
     }
+}
+
+/// A server's address, looking `name` up among the agent's aliases first.
+fn resolve_alias(paths: &Paths, name: &str) -> Result<Server> {
+    if let Ok(status) = ipc::call(paths, Request::Status) {
+        if let Some(s) = status.server_named(name) {
+            return Server::parse(s);
+        }
+    }
+    Server::parse(name)
 }
 
 fn list(server: &Server) -> Result<()> {
@@ -154,7 +193,7 @@ fn print_status(s: &Status) -> Result<()> {
     let mut rows = vec![row(["SERVER", "DEVICE", "STATE", "PORT", "NOTE"])];
     for d in &s.devices {
         rows.push(vec![
-            d.server.clone(),
+            s.display(&d.server),
             d.id.clone(),
             d.state.to_string(),
             d.port.map_or("-".into(), |p| p.to_string()),

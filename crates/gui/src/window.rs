@@ -29,6 +29,7 @@ pub fn run() -> eframe::Result {
                 model,
                 actions,
                 new_server: String::new(),
+                renaming: None,
             }))
         }),
     )
@@ -38,6 +39,8 @@ struct Window {
     model: Arc<Mutex<Model>>,
     actions: Sender<Action>,
     new_server: String,
+    /// The server being renamed, and the name typed so far.
+    renaming: Option<(String, String)>,
 }
 
 impl eframe::App for Window {
@@ -102,9 +105,50 @@ impl eframe::App for Window {
 }
 
 impl Window {
-    fn server_section(&self, ui: &mut egui::Ui, m: &Model, server: &str) {
+    fn server_section(&mut self, ui: &mut egui::Ui, m: &Model, server: &str) {
+        let editing = matches!(&self.renaming, Some((s, _)) if s == server);
         ui.horizontal(|ui| {
-            ui.heading(server);
+            if editing {
+                let Some((_, text)) = self.renaming.as_mut() else {
+                    return;
+                };
+                let edit = ui.add(
+                    egui::TextEdit::singleline(text)
+                        .hint_text("name, e.g. living-room-pi")
+                        .desired_width(200.0),
+                );
+                let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                let save = ui.button("Save").clicked() || enter;
+                let cancel = ui.button("Cancel").clicked();
+                if save {
+                    let alias = Some(text.trim().to_owned()).filter(|a| !a.is_empty());
+                    let _ = self.actions.send(Action::SetAlias {
+                        server: server.to_owned(),
+                        alias,
+                    });
+                }
+                if save || cancel {
+                    self.renaming = None;
+                }
+                return;
+            }
+            match m.alias(server) {
+                Some(a) => {
+                    ui.heading(a);
+                    ui.weak(server);
+                }
+                None => {
+                    ui.heading(server);
+                }
+            }
+            if ui
+                .small_button("Rename")
+                .on_hover_text("Give this server a name")
+                .clicked()
+            {
+                let current = m.alias(server).unwrap_or_default().to_owned();
+                self.renaming = Some((server.to_owned(), current));
+            }
             if ui
                 .small_button("Remove")
                 .on_hover_text("Forget this server and detach its devices")

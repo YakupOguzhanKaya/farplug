@@ -25,6 +25,8 @@ type Key = (String, String);
 struct Saved {
     servers: Vec<String>,
     devices: Vec<SavedDevice>,
+    #[serde(default)]
+    aliases: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -47,6 +49,7 @@ pub struct Agent {
 
 struct Inner {
     servers: Vec<String>,
+    aliases: BTreeMap<String, String>,
     workers: BTreeMap<Key, Worker>,
 }
 
@@ -156,6 +159,7 @@ impl Agent {
             state_path: paths.state.clone(),
             inner: Mutex::new(Inner {
                 servers: saved.servers,
+                aliases: saved.aliases,
                 workers: BTreeMap::new(),
             }),
         };
@@ -185,9 +189,31 @@ impl Agent {
             Request::RemoveServer { server } => {
                 let s = Server::parse(&server)?.to_string();
                 inner.servers.retain(|x| *x != s);
+                inner.aliases.remove(&s);
                 let keys: Vec<Key> = inner.workers.keys().filter(|k| k.0 == s).cloned().collect();
                 for k in keys {
                     self.stop(&mut inner, &k);
+                }
+                self.save(&inner)?;
+            }
+            Request::SetAlias { server, alias } => {
+                let s = Server::parse(&server)?.to_string();
+                match alias.as_deref().map(str::trim).filter(|a| !a.is_empty()) {
+                    None => {
+                        inner.aliases.remove(&s);
+                    }
+                    Some(a) => {
+                        if a.chars().count() > 64 {
+                            bail!("a server name can be at most 64 characters");
+                        }
+                        if inner.aliases.iter().any(|(other, n)| n == a && *other != s) {
+                            bail!("another server is already called {a:?}");
+                        }
+                        if !inner.servers.contains(&s) {
+                            inner.servers.push(s.clone());
+                        }
+                        inner.aliases.insert(s, a.to_owned());
+                    }
                 }
                 self.save(&inner)?;
             }
@@ -277,6 +303,7 @@ impl Agent {
     fn save(&self, inner: &Inner) -> Result<()> {
         let saved = Saved {
             servers: inner.servers.clone(),
+            aliases: inner.aliases.clone(),
             devices: inner
                 .workers
                 .keys()
@@ -306,6 +333,7 @@ impl Agent {
 fn status(inner: &Inner) -> Status {
     Status {
         servers: inner.servers.clone(),
+        aliases: inner.aliases.clone(),
         devices: inner
             .workers
             .values()
@@ -486,5 +514,33 @@ mod tests {
         assert_eq!(s.servers, vec!["other:3240"]);
         assert!(s.devices.is_empty());
         agent.shutdown();
+    }
+
+    #[test]
+    fn aliases_persist_and_stay_unique() {
+        let (_dir, paths, backend) = setup();
+        let agent = Agent::new(backend.clone(), &paths).unwrap();
+        let alias = |server: &str, name: Option<&str>| {
+            agent.handle(Request::SetAlias {
+                server: server.into(),
+                alias: name.map(Into::into),
+            })
+        };
+        let s = alias("10.0.0.2", Some(" enviropi ")).unwrap();
+        assert_eq!(s.servers, ["10.0.0.2:3240"]);
+        assert_eq!(s.display("10.0.0.2:3240"), "enviropi (10.0.0.2:3240)");
+        assert_eq!(s.server_named("enviropi"), Some("10.0.0.2:3240"));
+        assert!(alias("10.0.0.3", Some("enviropi")).is_err());
+        drop(agent);
+
+        let agent = Agent::new(backend, &paths).unwrap();
+        let s = agent.handle(Request::Status).unwrap();
+        assert_eq!(s.aliases["10.0.0.2:3240"], "enviropi");
+        let s = agent
+            .handle(Request::RemoveServer {
+                server: "10.0.0.2".into(),
+            })
+            .unwrap();
+        assert!(s.aliases.is_empty());
     }
 }

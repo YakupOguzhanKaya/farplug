@@ -101,6 +101,7 @@ farplug --server usbgw.local list
 farplug --server usbgw.local attach zigbee
 farplug status
 farplug detach zigbee
+farplug alias usbgw.local garage   # then: farplug --server garage list
 ```
 
 Or use the GUI: `farplug-gui` opens a window listing your servers and their

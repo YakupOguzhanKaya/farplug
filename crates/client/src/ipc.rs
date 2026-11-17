@@ -5,6 +5,7 @@
 //! TCP; it publishes its port and a random token in a file only that user can
 //! read, so reading the file is the permission check.
 
+use std::collections::BTreeMap;
 #[cfg(not(target_os = "linux"))]
 use std::fs;
 use std::io::{self, BufRead, BufReader, Read, Write};
@@ -41,6 +42,11 @@ pub enum Request {
     RemoveServer {
         server: String,
     },
+    /// A name to show for a server; None removes it.
+    SetAlias {
+        server: String,
+        alias: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,6 +54,26 @@ pub struct Status {
     /// Normalized `host:port`, in the order they were added.
     pub servers: Vec<String>,
     pub devices: Vec<DeviceStatus>,
+    /// Server -> the name the user gave it.
+    #[serde(default)]
+    pub aliases: BTreeMap<String, String>,
+}
+
+impl Status {
+    /// `alias (host:port)`, or just `host:port`.
+    pub fn display(&self, server: &str) -> String {
+        match self.aliases.get(server) {
+            Some(a) => format!("{a} ({server})"),
+            None => server.to_owned(),
+        }
+    }
+
+    pub fn server_named(&self, alias: &str) -> Option<&str> {
+        self.aliases
+            .iter()
+            .find(|(_, a)| a.as_str() == alias)
+            .map(|(s, _)| s.as_str())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

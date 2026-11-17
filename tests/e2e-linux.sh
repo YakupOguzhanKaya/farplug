@@ -45,6 +45,10 @@ $BIN/farplug status >"$T/status.txt"
 grep -q 'fake1 .*attached' "$T/status.txt" && pass "status shows attached" || fail "status: $(cat $T/status.txt)"
 wait_for 5 sh -c "$BIN/farplug status | grep nosuch | grep -q 'no such device'" \
     && pass "unknown id reported" || fail "unknown id not reported"
+$BIN/farplug alias 127.0.0.1:3241 testbox >/dev/null
+$BIN/farplug --server testbox list 2>&1 | grep -q '^fake1 ' && pass "alias usable as --server" || fail "alias as --server"
+$BIN/farplug status | grep -q '^testbox (127.0.0.1:3241) .*fake1' && pass "status shows alias" \
+    || fail "status: $($BIN/farplug status)"
 
 # A session that predates the group change: setpriv drops all supplementary
 # groups, as a login from before `usermod -aG` would have.

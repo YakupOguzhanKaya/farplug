@@ -100,6 +100,7 @@ fn summarize(m: &Model) -> (String, Health) {
     }
     for server in m.servers() {
         sig.push_str(&server);
+        sig.push_str(m.alias(&server).unwrap_or_default());
         for r in m.rows(&server) {
             let state = r.status.map(|s| s.state);
             any |= state.is_some();
@@ -149,7 +150,11 @@ fn build_menu(m: &Model) -> Result<Menu> {
         if i > 0 {
             menu.append(&PredefinedMenuItem::separator()).map_err(err)?;
         }
-        menu.append(&MenuItem::new(&server, false, None))
+        let title = match m.alias(&server) {
+            Some(a) => format!("{a} ({server})"),
+            None => server.clone(),
+        };
+        menu.append(&MenuItem::new(title, false, None))
             .map_err(err)?;
         for r in m.rows(&server) {
             let name = match r.description() {

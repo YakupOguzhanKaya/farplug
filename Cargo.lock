@@ -1257,7 +1257,7 @@ dependencies = [
 
 [[package]]
 name = "farplug"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -1275,7 +1275,7 @@ dependencies = [
 
 [[package]]
 name = "farplug-gui"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "eframe",
@@ -1290,7 +1290,7 @@ dependencies = [
 
 [[package]]
 name = "farplug-usbip"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "socket2 0.5.10",
  "thiserror 2.0.21",
@@ -1298,7 +1298,7 @@ dependencies = [
 
 [[package]]
 name = "farplugd"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "clap",

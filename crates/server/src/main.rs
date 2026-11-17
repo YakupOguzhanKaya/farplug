@@ -223,8 +223,17 @@ fn handle(mut sock: TcpStream, exports: &Mutex<Exports>) -> Result<()> {
 
 fn check(path: &Path, sysfs: &Sysfs) -> Result<()> {
     let cfg = Config::load(path)?;
-    println!("{}: valid, {} device(s)", path.display(), cfg.device.len());
-    if cfg.device.is_empty() {
+    println!(
+        "{}: valid, {} device(s){}",
+        path.display(),
+        cfg.device.len(),
+        if cfg.export_all {
+            ", export_all on"
+        } else {
+            ""
+        }
+    );
+    if cfg.device.is_empty() && !cfg.export_all {
         return Ok(());
     }
     let devices = match sysfs.scan() {
@@ -259,13 +268,42 @@ fn check(path: &Path, sysfs: &Sysfs) -> Result<()> {
         };
         rows.push(vec![id.clone(), port, usb, result]);
     }
-    table::print(&rows);
+    if rows.len() > 1 {
+        table::print(&rows);
+    }
     for (busid, ids) in owners.iter().filter(|(_, ids)| ids.len() > 1) {
         println!(
             "warning: {busid} matches {}; only {} exports it",
             ids.join(", "),
             ids[0]
         );
+    }
+    if cfg.export_all {
+        let mut generated: Vec<String> = Vec::new();
+        let mut rows = vec![table::row(["PORT", "USB ID", "EXPORT_ALL"])];
+        for d in devices
+            .iter()
+            .filter(|d| !owners.contains_key(d.busid.as_str()))
+        {
+            let result = match exports::auto_skip(&cfg, d) {
+                Some(why) => format!("skipped: {why}"),
+                None => {
+                    let id = exports::auto_id(d, |i| {
+                        cfg.device.contains_key(i) || generated.iter().any(|g| g == i)
+                    });
+                    let r = format!("exported as {id}: {}", d.description());
+                    generated.push(id);
+                    r
+                }
+            };
+            rows.push(vec![
+                d.busid.clone(),
+                format!("{:04x}:{:04x}", d.vendor_id, d.product_id),
+                result,
+            ]);
+        }
+        println!();
+        table::print(&rows);
     }
     Ok(())
 }

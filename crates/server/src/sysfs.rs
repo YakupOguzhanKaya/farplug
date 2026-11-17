@@ -13,6 +13,7 @@ use farplug_usbip::{ExportedDevice, Speed, UsbDevice, UsbInterface, PATH_LEN};
 
 pub const USBIP_HOST: &str = "usbip-host";
 const HUB_CLASS: u8 = 0x09;
+const STORAGE_CLASS: u8 = 0x08;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SysDevice {
@@ -34,11 +35,17 @@ pub struct SysDevice {
     pub product: Option<String>,
     pub driver: Option<String>,
     pub interfaces: Vec<UsbInterface>,
+    /// One of its interfaces is a network adapter.
+    pub has_net: bool,
 }
 
 impl SysDevice {
     pub fn is_hub(&self) -> bool {
         self.class == HUB_CLASS
+    }
+
+    pub fn is_storage(&self) -> bool {
+        self.interfaces.iter().any(|i| i.class == STORAGE_CLASS)
     }
 
     pub fn is_bound_to_usbip(&self) -> bool {
@@ -170,8 +177,10 @@ impl Sysfs {
         let configuration_value = dec("bConfigurationValue")? as u8;
         let num_interfaces = dec("bNumInterfaces").unwrap_or(0) as u8;
         let mut interfaces = Vec::with_capacity(num_interfaces.into());
+        let mut has_net = false;
         for i in 0..num_interfaces {
             let ifdir = dir.join(format!("{busid}:{configuration_value}.{i}"));
+            has_net |= ifdir.join("net").is_dir();
             let h = |name: &str| -> u8 {
                 read_attr(&ifdir, name)
                     .ok()
@@ -206,6 +215,7 @@ impl Sysfs {
                 .ok()
                 .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned())),
             interfaces,
+            has_net,
         })
     }
 
@@ -317,6 +327,8 @@ pub mod fake {
         pub serial: Option<&'a str>,
         pub driver: Option<&'a str>,
         pub class: &'a str,
+        pub if_class: &'a str,
+        pub net: bool,
     }
 
     impl Default for FakeDev<'_> {
@@ -328,6 +340,8 @@ pub mod fake {
                 serial: None,
                 driver: Some("usb"),
                 class: "00",
+                if_class: "ff",
+                net: false,
             }
         }
     }
@@ -388,7 +402,10 @@ pub mod fake {
             }
             let ifdir = dir.join(format!("{}:1.0", d.busid));
             fs::create_dir_all(&ifdir).unwrap();
-            fs::write(ifdir.join("bInterfaceClass"), "ff\n").unwrap();
+            fs::write(ifdir.join("bInterfaceClass"), format!("{}\n", d.if_class)).unwrap();
+            if d.net {
+                fs::create_dir_all(ifdir.join("net/eth1")).unwrap();
+            }
             if let Some(drv) = d.driver {
                 self.set_driver(d.busid, drv);
             }

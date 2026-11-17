@@ -10,6 +10,12 @@
 
 listen = "0.0.0.0:3240"
 
+# Also export every device no [device.*] block matches, under a generated id
+# (name plus serial, or plus port). Hubs, network adapters and storage are
+# never included this way. `farplugd check` shows what it would export.
+# export_all = true
+# exclude = ["1-1.4", "046d:c548"]   # ports or USB ids to leave alone
+
 # Examples; uncomment and adapt.
 #
 # [device.zigbee]

@@ -167,6 +167,18 @@ grep -q 2-2 $S/bus/usb/drivers/usbip-host/rebind && pass "removed device returne
     || fail "removed device not released"
 $BIN/farplug --server 127.0.0.1:3242 list | grep -q '^zigbee ' && pass "unchanged export kept" \
     || fail "zigbee lost on reload"
+
+# export_all: the unlisted device is exported, the network adapter is not.
+fakedev 2-3 0bda 8153 RTL8153 5
+mkdir -p $S/bus/usb/devices/2-3/2-3:1.0/net/eth1
+sed -i '1i export_all = true' $T/config.toml
+wait_for 5 sh -c "$BIN/farplug --server 127.0.0.1:3242 list | grep -q '^zst39-2-2 '" \
+    && pass "export_all exports unlisted devices" || fail "export_all: $($BIN/farplug --server 127.0.0.1:3242 list)"
+$BIN/farplug --server 127.0.0.1:3242 list | grep -q 8153 && fail "export_all exported a network adapter" \
+    || pass "export_all skips network adapters"
+$BIN/farplugd --config $T/config.toml --sysfs-root $S check >"$T/check-all.txt" 2>&1
+grep -q '^2-3 .*skipped: network adapter' "$T/check-all.txt" && pass "check explains export_all skips" \
+    || fail "check: $(cat $T/check-all.txt)"
 kill $SERVER
 
 for f in "$T"/*.log "$T"/*.txt; do echo "--- $(basename "$f")"; cat "$f"; done

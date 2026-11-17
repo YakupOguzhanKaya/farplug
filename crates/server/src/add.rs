@@ -8,7 +8,7 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 
 use crate::config::Config;
-use crate::exports::candidates;
+use crate::exports::{candidates, slug};
 use crate::sysfs::{SysDevice, Sysfs};
 use crate::table;
 
@@ -175,20 +175,9 @@ fn ask(prompt: &str, input: &mut impl BufRead, out: &mut impl Write) -> Result<O
 
 /// The device's name, shortened: "Silicon Labs CP2102N" -> "silicon-labs-cp2102n".
 fn suggest_id(d: &SysDevice, taken: &BTreeSet<String>) -> String {
-    let words: Vec<String> = d
-        .description()
-        .split(|c: char| !c.is_ascii_alphanumeric())
-        .filter(|w| !w.is_empty())
-        .take(3)
-        .map(str::to_ascii_lowercase)
-        .collect();
-    let mut base = words.join("-");
-    base.truncate(24);
-    let base = base.trim_end_matches('-').to_owned();
-    let base = if base.is_empty() {
-        format!("usb-{:04x}-{:04x}", d.vendor_id, d.product_id)
-    } else {
-        base
+    let base = match slug(&d.description(), 3, 24) {
+        b if b.is_empty() => format!("usb-{:04x}-{:04x}", d.vendor_id, d.product_id),
+        b => b,
     };
     (1..)
         .map(|n| {

@@ -1,6 +1,6 @@
 //! Keeps configured devices bound to `usbip-host` as they come and go.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::net::SocketAddr;
 
 use anyhow::Result;
@@ -20,6 +20,8 @@ pub struct Exports {
     warned_strays: bool,
     /// Busid -> the client that last imported it.
     attached_by: HashMap<String, SocketAddr>,
+    /// Ids in `bound` that export_all generated rather than the config.
+    auto: BTreeSet<String>,
 }
 
 impl Exports {
@@ -31,6 +33,7 @@ impl Exports {
             problems: HashMap::new(),
             warned_strays: false,
             attached_by: HashMap::new(),
+            auto: BTreeSet::new(),
         }
     }
 
@@ -39,6 +42,11 @@ impl Exports {
     /// stay connected. New entries are bound by the next [`Self::reconcile`].
     pub fn set_config(&mut self, cfg: Config) {
         for (id, d) in std::mem::take(&mut self.bound) {
+            if self.auto.contains(&id) {
+                // reconcile decides with the new config.
+                self.bound.insert(id, d);
+                continue;
+            }
             match cfg.device.get(&id) {
                 Some(want) if want.matches(&d) => {
                     self.bound.insert(id, d);
@@ -60,6 +68,14 @@ impl Exports {
         let by_busid: HashMap<&str, &SysDevice> =
             devices.iter().map(|d| (d.busid.as_str(), d)).collect();
 
+        let configured: HashSet<&str> = self
+            .cfg
+            .device
+            .values()
+            .flat_map(|want| candidates(want, &devices))
+            .map(|d| d.busid.as_str())
+            .collect();
+
         let ids: Vec<String> = self.bound.keys().cloned().collect();
         for id in ids {
             let busid = self.bound[&id].busid.clone();
@@ -68,6 +84,23 @@ impl Exports {
                     info!(device = %id, %busid, "unplugged");
                     self.sysfs.forget(&busid);
                     self.bound.remove(&id);
+                    self.auto.remove(&id);
+                }
+                Some(d) if self.auto.contains(&id) => {
+                    if configured.contains(busid.as_str()) {
+                        // Still bound; the config entry adopts it below.
+                        self.bound.remove(&id);
+                        self.auto.remove(&id);
+                    } else if !self.cfg.export_all || self.cfg.excluded(d) {
+                        info!(device = %id, %busid, "no longer exported by export_all; returning it to the host");
+                        if let Err(e) = self.sysfs.release(&busid) {
+                            warn!(%busid, error = %e, "could not return device to the host");
+                        }
+                        self.bound.remove(&id);
+                        self.auto.remove(&id);
+                    } else {
+                        self.bound.insert(id, (*d).clone());
+                    }
                 }
                 Some(d) if !self.cfg.device[&id].matches(d) => {
                     info!(device = %id, %busid, "a different device is now on this port");
@@ -134,6 +167,9 @@ impl Exports {
             }
         }
         self.bound.extend(newly_bound);
+        if self.cfg.export_all {
+            self.export_rest(&devices, &configured, &mut claimed);
+        }
 
         if !self.warned_strays {
             self.warned_strays = true;
@@ -149,6 +185,43 @@ impl Exports {
             }
         }
         Ok(())
+    }
+
+    /// export_all: everything no config entry matches and nothing rules out.
+    fn export_rest(
+        &mut self,
+        devices: &[SysDevice],
+        configured: &HashSet<&str>,
+        claimed: &mut HashMap<String, String>,
+    ) {
+        for d in devices {
+            if claimed.contains_key(&d.busid)
+                || configured.contains(d.busid.as_str())
+                || auto_skip(&self.cfg, d).is_some()
+            {
+                continue;
+            }
+            let id = auto_id(d, |i| {
+                self.cfg.device.contains_key(i) || self.bound.contains_key(i)
+            });
+            let key = format!("auto:{}", d.busid);
+            match self.sysfs.bind(d) {
+                Ok(()) => {
+                    info!(device = %id, busid = %d.busid, "exporting {} (export_all)", d.description());
+                    self.problems.remove(&key);
+                    claimed.insert(d.busid.clone(), id.clone());
+                    self.bound.insert(id.clone(), d.clone());
+                    self.auto.insert(id);
+                }
+                Err(e) => {
+                    let p = format!("binding {} to usbip-host failed: {e:#}", d.busid);
+                    if self.problems.get(&key) != Some(&p) {
+                        warn!(busid = %d.busid, "{p}");
+                        self.problems.insert(key, p);
+                    }
+                }
+            }
+        }
     }
 
     pub fn config(&self) -> &Config {
@@ -195,6 +268,70 @@ impl Exports {
             .get(name)
             .or_else(|| self.bound.values().find(|d| d.busid == name))
     }
+}
+
+/// Why export_all leaves a device alone, if it does.
+pub fn auto_skip(cfg: &Config, d: &SysDevice) -> Option<&'static str> {
+    if d.is_hub() {
+        Some("hub")
+    } else if d.has_net {
+        Some("network adapter; exporting it could cut this server off")
+    } else if d.is_storage() {
+        Some("storage, which may hold this server's files; add a [device.*] entry to export it")
+    } else if cfg.excluded(d) {
+        Some("excluded in the config")
+    } else {
+        None
+    }
+}
+
+/// Stable across replugs: the device's name plus its serial, or its port
+/// when it has no serial.
+pub fn auto_id(d: &SysDevice, taken: impl Fn(&str) -> bool) -> String {
+    let suffix = match &d.serial {
+        Some(s) => {
+            let s: String = s
+                .chars()
+                .filter(char::is_ascii_alphanumeric)
+                .map(|c| c.to_ascii_lowercase())
+                .collect();
+            s[s.len().saturating_sub(8)..].to_owned()
+        }
+        None => d.busid.clone(),
+    };
+    let suffix = if suffix.is_empty() {
+        d.busid.clone()
+    } else {
+        suffix
+    };
+    let base = match slug(&d.description(), 2, 30usize.saturating_sub(suffix.len())) {
+        b if b.is_empty() => format!("{:04x}-{:04x}", d.vendor_id, d.product_id),
+        b => b,
+    };
+    let id = format!("{base}-{suffix}");
+    (1..)
+        .map(|n| {
+            if n == 1 {
+                id.clone()
+            } else {
+                format!("{id}-{n}")
+            }
+        })
+        .find(|i| !taken(i))
+        .expect("an unused id exists")
+}
+
+/// Lowercase words joined by '-': "Silicon Labs CP2102N" -> "silicon-labs".
+pub fn slug(text: &str, words: usize, max: usize) -> String {
+    let mut s = text
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .take(words)
+        .map(str::to_ascii_lowercase)
+        .collect::<Vec<_>>()
+        .join("-");
+    s.truncate(max);
+    s.trim_end_matches('-').to_owned()
 }
 
 /// The devices a config entry would export; hubs never qualify.
@@ -258,6 +395,49 @@ mod tests {
         ex.reconcile().unwrap();
         let ids: Vec<String> = ex.list().into_iter().map(|d| d.device.busid).collect();
         assert_eq!(ids, ["zigbee"]);
+        assert_eq!(fs_.read("bus/usb/drivers/usbip-host/rebind"), "1-2");
+    }
+
+    #[test]
+    fn export_all_skips_unsafe_devices_and_yields_to_config() {
+        let fs_ = FakeSys::new();
+        let dev = |busid, vid, pid| FakeDev {
+            busid,
+            vid,
+            pid,
+            ..Default::default()
+        };
+        fs_.add(FakeDev {
+            serial: Some("AB-12"),
+            ..dev("1-1", "10c4", "ea60")
+        });
+        fs_.add(dev("1-2", "046d", "c548"));
+        fs_.add(FakeDev {
+            net: true,
+            ..dev("1-3", "0bda", "8153")
+        });
+        fs_.add(FakeDev {
+            if_class: "08",
+            ..dev("1-4", "0781", "5595")
+        });
+        fs_.add(dev("1-5", "1a86", "55d4"));
+        let all = "export_all = true\nexclude = [\"1a86:55d4\"]\n";
+        let ids = |ex: &Exports| -> Vec<String> {
+            ex.list().into_iter().map(|d| d.device.busid).collect()
+        };
+
+        let mut ex = exports(&fs_, all);
+        ex.reconcile().unwrap();
+        assert_eq!(ids(&ex), ["cp2102n-usb-1-2", "cp2102n-usb-ab12"]);
+
+        ex.set_config(Config::parse(&format!("{all}{ZIGBEE}")).unwrap());
+        ex.reconcile().unwrap();
+        assert_eq!(ids(&ex), ["cp2102n-usb-1-2", "zigbee"]);
+        assert_eq!(fs_.read("bus/usb/drivers/usbip-host/rebind"), "");
+
+        ex.set_config(Config::parse(ZIGBEE).unwrap());
+        ex.reconcile().unwrap();
+        assert_eq!(ids(&ex), ["zigbee"]);
         assert_eq!(fs_.read("bus/usb/drivers/usbip-host/rebind"), "1-2");
     }
 

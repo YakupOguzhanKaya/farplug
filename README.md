@@ -87,7 +87,9 @@ sudo farplugd check    # what each config entry matches
 `add` writes entries like the one below to `/etc/farplug/config.toml`; you can
 also edit the file by hand. The running server applies changes within a
 second: unchanged exports stay connected, removed ones go back to the host,
-and an invalid edit is ignored with a warning in the log.
+and an invalid edit is ignored with a warning in the log. Set
+`export_all = true` to export everything plugged in without listing it; see
+`config.example.toml`.
 
 ```toml
 [device.zigbee]

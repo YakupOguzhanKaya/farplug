@@ -113,6 +113,7 @@ ln -s ../../drivers/usb $D/driver
 cat >$T/config.toml <<EOF
 listen = "127.0.0.1:3242"
 [device.zigbee]
+label = "SMLIGHT SLZB-07"
 vid = "10c4"
 pid = "ea60"
 EOF
@@ -123,6 +124,9 @@ sleep 1
 
 usbip --tcp-port 3242 list -r 127.0.0.1 >"$T/usbip-list.txt" 2>&1
 grep -q 'zigbee: .*10c4:ea60' "$T/usbip-list.txt" && pass "stock usbip list" || fail "stock usbip list"
+$BIN/farplug --server 127.0.0.1:3242 list >"$T/farplug-list.txt" 2>&1
+grep -q '^zigbee .*available .*SMLIGHT SLZB-07' "$T/farplug-list.txt" \
+    && pass "farplug list shows label and availability" || fail "farplug list: $(cat $T/farplug-list.txt)"
 
 # The fake server hands the socket to a plain file, not the kernel, so the
 # device drops right after; only the handshake is under test here.
@@ -132,6 +136,10 @@ else
     fail "stock usbip attach handshake"
 fi
 [ -n "$(cat $D/usbip_sockfd)" ] && pass "server wrote sockfd" || fail "no sockfd written"
+echo 2 >$D/usbip_status
+$BIN/farplug --server 127.0.0.1:3242 list >"$T/farplug-list-used.txt" 2>&1
+grep -q '^zigbee .*in use by 127.0.0.1' "$T/farplug-list-used.txt" \
+    && pass "farplug list shows who uses a device" || fail "farplug list: $(cat $T/farplug-list-used.txt)"
 kill $SERVER
 
 for f in "$T"/*.log "$T"/*.txt; do echo "--- $(basename "$f")"; cat "$f"; done

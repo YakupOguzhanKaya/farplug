@@ -1,13 +1,14 @@
 //! Keeps configured devices bound to `usbip-host` as they come and go.
 
 use std::collections::{BTreeMap, HashMap};
+use std::net::SocketAddr;
 
 use anyhow::Result;
-use farplug_usbip::ExportedDevice;
+use farplug_usbip::{DeviceInfo, ExportedDevice, ServerInfo};
 use tracing::{info, warn};
 
 use crate::config::Config;
-use crate::sysfs::{SysDevice, Sysfs};
+use crate::sysfs::{StubStatus, SysDevice, Sysfs};
 
 pub struct Exports {
     cfg: Config,
@@ -17,6 +18,8 @@ pub struct Exports {
     /// Last problem logged per export id, so a persistent one is logged once.
     problems: HashMap<String, String>,
     warned_strays: bool,
+    /// Busid -> the client that last imported it.
+    attached_by: HashMap<String, SocketAddr>,
 }
 
 impl Exports {
@@ -27,6 +30,7 @@ impl Exports {
             bound: BTreeMap::new(),
             problems: HashMap::new(),
             warned_strays: false,
+            attached_by: HashMap::new(),
         }
     }
 
@@ -132,6 +136,35 @@ impl Exports {
 
     pub fn list(&self) -> Vec<ExportedDevice> {
         self.bound.iter().map(|(id, d)| d.exported(id)).collect()
+    }
+
+    pub fn record_attach(&mut self, busid: &str, peer: SocketAddr) {
+        self.attached_by.insert(busid.to_owned(), peer);
+    }
+
+    pub fn info(&self) -> ServerInfo {
+        let devices = self
+            .bound
+            .iter()
+            .map(|(id, d)| {
+                let in_use = matches!(self.sysfs.stub_status(&d.busid), Ok(StubStatus::Used));
+                DeviceInfo {
+                    id: id.clone(),
+                    label: self.cfg.device.get(id).and_then(|c| c.label.clone()),
+                    description: d.description(),
+                    in_use,
+                    used_by: self
+                        .attached_by
+                        .get(&d.busid)
+                        .filter(|_| in_use)
+                        .map(|a| a.ip().to_string()),
+                }
+            })
+            .collect();
+        ServerInfo {
+            version: env!("CARGO_PKG_VERSION").into(),
+            devices,
+        }
     }
 
     /// Resolve what a client asked for: an export id, or for compatibility with

@@ -124,8 +124,12 @@ fn handle(mut sock: TcpStream, exports: &Mutex<Exports>) -> Result<()> {
             let list = exports.lock().unwrap().list();
             usbip::write_devlist_reply(&mut sock, &list)?;
         }
+        Request::Info => {
+            let info = exports.lock().unwrap().info();
+            usbip::write_info_reply(&mut sock, &info)?;
+        }
         Request::Import { busid: name } => {
-            let ex = exports.lock().unwrap();
+            let mut ex = exports.lock().unwrap();
             let Some(dev) = ex.find(&name).cloned() else {
                 info!(?peer, device = %name, "import refused: not exported");
                 return Ok(usbip::write_import_reply(&mut sock, Err(Status::NoDevice))?);
@@ -153,6 +157,9 @@ fn handle(mut sock: TcpStream, exports: &Mutex<Exports>) -> Result<()> {
                     &mut sock,
                     Err(Status::NotAvailable),
                 )?);
+            }
+            if let Some(peer) = peer {
+                ex.record_attach(&dev.busid, peer);
             }
             drop(ex);
             usbip::write_import_reply(&mut sock, Ok(&dev.to_usbip(&name)))?;

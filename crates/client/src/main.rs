@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 use farplug::ipc::{self, Request, Status};
 use farplug::paths::Paths;
 use farplug::{agent, backend, supervisor, Server};
+use farplug_usbip::DeviceInfo;
 
 #[derive(Parser)]
 #[command(version, about = "Use USB devices exported by a farplugd server")]
@@ -117,22 +118,32 @@ fn list(server: &Server) -> Result<()> {
         println!("{server} exports no devices right now");
         return Ok(());
     }
-    let mut rows = vec![row(["ID", "USB ID", "SPEED", "INTERFACE CLASSES"])];
+    let info = server.info().unwrap_or_default();
+    let mut rows = vec![row(["ID", "USB ID", "SPEED", "STATE", "DESCRIPTION"])];
     for d in devices {
-        let classes: Vec<String> = d
-            .interfaces
-            .iter()
-            .map(|i| format!("{:02x}", i.class))
-            .collect();
+        let i = info.devices.iter().find(|i| i.id == d.device.busid);
         rows.push(vec![
-            d.device.busid,
+            d.device.busid.clone(),
             format!("{:04x}:{:04x}", d.device.vendor_id, d.device.product_id),
             d.device.speed.to_string(),
-            classes.join(" "),
+            i.map(state).unwrap_or_default(),
+            i.map(describe).unwrap_or_default(),
         ]);
     }
     print_table(&rows);
     Ok(())
+}
+
+fn state(i: &DeviceInfo) -> String {
+    match (i.in_use, &i.used_by) {
+        (false, _) => "available".into(),
+        (true, Some(by)) => format!("in use by {by}"),
+        (true, None) => "in use".into(),
+    }
+}
+
+fn describe(i: &DeviceInfo) -> String {
+    i.label.clone().unwrap_or_else(|| i.description.clone())
 }
 
 fn print_status(s: &Status) -> Result<()> {

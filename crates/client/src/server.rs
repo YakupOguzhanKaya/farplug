@@ -3,7 +3,7 @@ use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
-use farplug_usbip::{self as usbip, ExportedDevice, Request, DEFAULT_PORT};
+use farplug_usbip::{self as usbip, ExportedDevice, Request, ServerInfo, DEFAULT_PORT};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -99,6 +99,13 @@ impl Server {
         let mut sock = self.connect()?;
         Request::DevList.write_to(&mut sock)?;
         Ok(usbip::read_devlist_reply(&mut sock)?)
+    }
+
+    /// Labels and who is using what; fails on servers older than 0.3.2.
+    pub fn info(&self) -> Result<ServerInfo> {
+        let mut sock = self.connect()?;
+        Request::Info.write_to(&mut sock)?;
+        Ok(usbip::read_info_reply(&mut sock)?)
     }
 }
 

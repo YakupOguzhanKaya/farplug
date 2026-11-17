@@ -104,7 +104,13 @@ fn summarize(m: &Model) -> (String, Health) {
             let state = r.status.map(|s| s.state);
             any |= state.is_some();
             retrying |= matches!(state, Some(DeviceState::Retrying | DeviceState::Connecting));
-            sig.push_str(&format!("|{}{:?}", r.id, state));
+            sig.push_str(&format!(
+                "|{}{:?}{:?}{:?}",
+                r.id,
+                state,
+                r.description(),
+                r.used_elsewhere()
+            ));
         }
     }
     let health = match (any, retrying) {
@@ -146,14 +152,21 @@ fn build_menu(m: &Model) -> Result<Menu> {
         menu.append(&MenuItem::new(&server, false, None))
             .map_err(err)?;
         for r in m.rows(&server) {
-            let label = match r.status.map(|s| s.state) {
-                Some(DeviceState::Attached) | None => r.id.to_owned(),
-                Some(_) => format!("{} (reconnecting)", r.id),
+            let name = match r.description() {
+                Some(d) => format!("{} \u{2014} {d}", r.id),
+                None => r.id.to_owned(),
+            };
+            let busy = r.used_elsewhere();
+            let label = match (r.status.map(|s| s.state), &busy) {
+                (Some(DeviceState::Attached), _) => name,
+                (Some(_), _) => format!("{name} (reconnecting)"),
+                (None, Some(b)) => format!("{name} ({b})"),
+                (None, None) => name,
             };
             menu.append(&CheckMenuItem::with_id(
                 format!("{server}{SEP}{}", r.id),
                 label,
-                true,
+                busy.is_none(),
                 r.status.is_some(),
                 None,
             ))

@@ -18,6 +18,11 @@ pub const OP_REQ_DEVLIST: u16 = 0x8005;
 pub const OP_REP_DEVLIST: u16 = 0x0005;
 pub const OP_REQ_IMPORT: u16 = 0x8003;
 pub const OP_REP_IMPORT: u16 = 0x0003;
+/// farplug's own request; stock USB/IP peers never send it, and older farplug
+/// servers close the connection on it.
+pub const OP_REQ_INFO: u16 = 0x8f01;
+pub const OP_REP_INFO: u16 = 0x0f01;
+const MAX_INFO_LEN: u32 = 1 << 20;
 
 pub const BUSID_LEN: usize = 32;
 pub const PATH_LEN: usize = 256;
@@ -50,6 +55,8 @@ pub enum Error {
     NotUtf8(&'static str),
     #[error("server refused: {0}")]
     Refused(Status),
+    #[error("bad info reply: {0}")]
+    BadInfo(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -245,6 +252,7 @@ pub struct ExportedDevice {
 pub enum Request {
     DevList,
     Import { busid: String },
+    Info,
 }
 
 impl Request {
@@ -252,6 +260,7 @@ impl Request {
         let mut out = Vec::with_capacity(HEADER_LEN + BUSID_LEN);
         match self {
             Self::DevList => put_header(&mut out, OP_REQ_DEVLIST, Status::Ok),
+            Self::Info => put_header(&mut out, OP_REQ_INFO, Status::Ok),
             Self::Import { busid } => {
                 put_header(&mut out, OP_REQ_IMPORT, Status::Ok);
                 put_str(&mut out, busid, BUSID_LEN, "busid")?;
@@ -265,6 +274,7 @@ impl Request {
         let (code, _) = read_header(r)?;
         match code {
             OP_REQ_DEVLIST => Ok(Self::DevList),
+            OP_REQ_INFO => Ok(Self::Info),
             OP_REQ_IMPORT => {
                 let mut b = [0u8; BUSID_LEN];
                 r.read_exact(&mut b)?;
@@ -323,6 +333,57 @@ pub fn read_devlist_reply(r: &mut impl Read) -> Result<Vec<ExportedDevice>> {
         devices.push(ExportedDevice { device, interfaces });
     }
     Ok(devices)
+}
+
+/// What a farplug server knows about its exports beyond the USB/IP device list.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ServerInfo {
+    #[serde(default)]
+    pub version: String,
+    #[serde(default)]
+    pub devices: Vec<DeviceInfo>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DeviceInfo {
+    pub id: String,
+    #[serde(default)]
+    pub label: Option<String>,
+    /// Manufacturer and product as the device reports them.
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub in_use: bool,
+    /// Address of the client using it, if the server saw the import.
+    #[serde(default)]
+    pub used_by: Option<String>,
+}
+
+pub fn write_info_reply(w: &mut impl Write, info: &ServerInfo) -> Result<()> {
+    let json = serde_json::to_vec(info).map_err(|e| Error::BadInfo(e.to_string()))?;
+    let mut out = Vec::with_capacity(HEADER_LEN + 4 + json.len());
+    put_header(&mut out, OP_REP_INFO, Status::Ok);
+    out.extend_from_slice(&(json.len() as u32).to_be_bytes());
+    out.extend_from_slice(&json);
+    w.write_all(&out)?;
+    Ok(())
+}
+
+pub fn read_info_reply(r: &mut impl Read) -> Result<ServerInfo> {
+    let (code, status) = read_header(r)?;
+    expect_op(code, OP_REP_INFO)?;
+    if status != Status::Ok {
+        return Err(Error::Refused(status));
+    }
+    let mut n = [0u8; 4];
+    r.read_exact(&mut n)?;
+    let n = u32::from_be_bytes(n);
+    if n > MAX_INFO_LEN {
+        return Err(Error::BadInfo(format!("{n} bytes")));
+    }
+    let mut json = vec![0u8; n as usize];
+    r.read_exact(&mut json)?;
+    serde_json::from_slice(&json).map_err(|e| Error::BadInfo(e.to_string()))
 }
 
 /// `Ok` carries the device being handed over; `Err` the refusal status.
@@ -543,5 +604,25 @@ mod tests {
     #[test]
     fn devid_packs_bus_and_dev() {
         assert_eq!(sample().devid(), 0x0001_0007);
+    }
+
+    #[test]
+    fn info_roundtrip() {
+        let info = ServerInfo {
+            version: "0.3.2".into(),
+            devices: vec![DeviceInfo {
+                id: "zigbee".into(),
+                label: Some("SLZB-07".into()),
+                description: "Silicon Labs CP210x".into(),
+                in_use: true,
+                used_by: Some("192.168.2.10".into()),
+            }],
+        };
+        let mut buf = Vec::new();
+        Request::Info.write_to(&mut buf).unwrap();
+        assert_eq!(Request::read_from(&mut &buf[..]).unwrap(), Request::Info);
+        buf.clear();
+        write_info_reply(&mut buf, &info).unwrap();
+        assert_eq!(read_info_reply(&mut &buf[..]).unwrap(), info);
     }
 }

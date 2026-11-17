@@ -10,7 +10,7 @@ use std::time::Duration;
 use farplug::ipc::{self, DeviceStatus, Request, Status};
 use farplug::paths::Paths;
 use farplug::Server;
-use farplug_usbip::ExportedDevice;
+use farplug_usbip::{DeviceInfo, ExportedDevice, ServerInfo};
 
 const AGENT_POLL: Duration = Duration::from_secs(2);
 const SERVER_POLL: Duration = Duration::from_secs(5);
@@ -21,6 +21,8 @@ pub struct Model {
     pub agent: Option<Result<Status, String>>,
     /// Per server: what it exports, or why it could not be listed.
     pub exported: BTreeMap<String, Result<Vec<ExportedDevice>, String>>,
+    /// Per server: labels and usage; missing for servers older than 0.3.2.
+    pub info: BTreeMap<String, ServerInfo>,
     pub last_error: Option<String>,
 }
 
@@ -36,6 +38,29 @@ pub struct Row<'a> {
     pub id: &'a str,
     pub exported: Option<&'a ExportedDevice>,
     pub status: Option<&'a DeviceStatus>,
+    pub info: Option<&'a DeviceInfo>,
+}
+
+impl Row<'_> {
+    /// The label, or the device's own name.
+    pub fn description(&self) -> Option<&str> {
+        let i = self.info?;
+        i.label
+            .as_deref()
+            .or(Some(&i.description))
+            .filter(|d| !d.is_empty())
+    }
+
+    /// Who else holds the device, when this machine does not.
+    pub fn used_elsewhere(&self) -> Option<String> {
+        match (self.status, self.info) {
+            (None, Some(i)) if i.in_use => Some(match &i.used_by {
+                Some(by) => format!("in use by {by}"),
+                None => "in use by another client".into(),
+            }),
+            _ => None,
+        }
+    }
 }
 
 impl Model {
@@ -61,6 +86,7 @@ impl Model {
                     id: &d.device.busid,
                     exported: Some(d),
                     status: statuses.iter().copied().find(|s| s.id == d.device.busid),
+                    info: None,
                 })
                 .collect(),
             _ => Vec::new(),
@@ -71,7 +97,13 @@ impl Model {
                     id: &s.id,
                     exported: None,
                     status: Some(s),
+                    info: None,
                 });
+            }
+        }
+        if let Some(info) = self.info.get(server) {
+            for r in &mut rows {
+                r.info = info.devices.iter().find(|i| i.id == r.id);
             }
         }
         rows.sort_by(|a, b| a.id.cmp(b.id));
@@ -135,15 +167,31 @@ pub fn spawn(
             .into_iter()
             .map(|s| {
                 thread::spawn(move || {
-                    let result = Server::parse(&s)
-                        .and_then(|server| server.devices())
-                        .map_err(|e| format!("{e:#}"));
-                    (s, result)
+                    let server = Server::parse(&s);
+                    let devices = server
+                        .as_ref()
+                        .map_err(|e| format!("{e:#}"))
+                        .and_then(|sv| sv.devices().map_err(|e| format!("{e:#}")));
+                    let info = match (&server, &devices) {
+                        (Ok(sv), Ok(_)) => sv.info().ok(),
+                        _ => None,
+                    };
+                    (s, devices, info)
                 })
             })
             .collect();
-        let results: BTreeMap<_, _> = fetches.into_iter().filter_map(|h| h.join().ok()).collect();
-        m.lock().unwrap().exported = results;
+        let mut exported = BTreeMap::new();
+        let mut info = BTreeMap::new();
+        for (s, devices, i) in fetches.into_iter().filter_map(|h| h.join().ok()) {
+            if let Some(i) = i {
+                info.insert(s.clone(), i);
+            }
+            exported.insert(s, devices);
+        }
+        let mut model = m.lock().unwrap();
+        model.exported = exported;
+        model.info = info;
+        drop(model);
         r();
         thread::sleep(SERVER_POLL);
     });

@@ -145,10 +145,19 @@ impl Window {
                             AMBER,
                             s.error.clone().unwrap_or_else(|| "connecting".into()),
                         ),
-                        None => (false, ui.visuals().weak_text_color(), String::new()),
+                        None => (
+                            false,
+                            ui.visuals().weak_text_color(),
+                            row.used_elsewhere().unwrap_or_default(),
+                        ),
                     };
                     dot(ui, color, filled);
-                    ui.label(RichText::new(row.id).strong());
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(row.id).strong());
+                        if let Some(d) = row.description() {
+                            ui.weak(d);
+                        }
+                    });
                     match row.exported {
                         Some(d) => ui.label(format!(
                             "{:04x}:{:04x}  {}",
@@ -173,7 +182,11 @@ impl Window {
                             },
                         ),
                     };
-                    if ui.button(label).clicked() {
+                    let busy = row.used_elsewhere().is_some();
+                    let button = ui
+                        .add_enabled(!busy, egui::Button::new(label))
+                        .on_disabled_hover_text("Another client is using this device");
+                    if button.clicked() {
                         let _ = self.actions.send(action);
                     }
                     ui.end_row();

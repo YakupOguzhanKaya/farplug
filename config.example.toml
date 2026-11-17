@@ -6,21 +6,24 @@
 #
 # Run `sudo farplugd scan` to see what is plugged in and its vid/pid/serial.
 # Every matcher you set must match; if several devices match, none is exported.
+# Restart farplugd after editing: sudo systemctl restart farplugd
 
 listen = "0.0.0.0:3240"
 
-[device.zigbee]
-label = "SMLIGHT SLZB-07"
-vid = "10c4"
-pid = "ea60"
-serial = "0001"
-
-[device.zwave]
-label = "Zooz ZST39 800"
-vid = "1a86"
-pid = "55d4"
-
+# Examples; uncomment and adapt.
+#
+# [device.zigbee]
+# label = "SMLIGHT SLZB-07"
+# vid = "10c4"
+# pid = "ea60"
+# serial = "0001"
+#
+# [device.zwave]
+# label = "Zooz ZST39 800"
+# vid = "1a86"
+# pid = "55d4"
+#
 # Identical devices without serial numbers: match the physical port instead.
-[device.ups]
-label = "Eaton 5E"
-port = "1-1.4"
+# [device.ups]
+# label = "Eaton 5E"
+# port = "1-1.4"

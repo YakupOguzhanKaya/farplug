@@ -7,6 +7,8 @@ use farplug_usbip::{self as usbip, ExportedDevice, Request, DEFAULT_PORT};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg(target_os = "linux")]
+const MDNS_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Server {
@@ -53,10 +55,7 @@ impl Server {
     /// Resolved on every connect, so a server whose address changes is
     /// still found on the next reconnect.
     pub fn connect(&self) -> Result<TcpStream> {
-        let addrs: Vec<SocketAddr> = (self.host.as_str(), self.port)
-            .to_socket_addrs()
-            .with_context(|| format!("resolving {}", self.host))?
-            .collect();
+        let addrs = self.resolve()?;
         let mut last = None;
         for addr in &addrs {
             match TcpStream::connect_timeout(addr, CONNECT_TIMEOUT) {
@@ -72,6 +71,27 @@ impl Server {
             Some((addr, e)) => Err(e).with_context(|| format!("connecting to {addr}")),
             None => bail!("{} did not resolve to any address", self.host),
         }
+    }
+
+    fn resolve(&self) -> Result<Vec<SocketAddr>> {
+        #[cfg(target_os = "linux")]
+        if crate::mdns::is_mdns_name(&self.host) {
+            return match crate::mdns::resolve(&self.host, self.port, MDNS_TIMEOUT) {
+                Ok(addrs) => Ok(addrs),
+                // /etc/hosts or a DNS server may still know the name.
+                Err(e) => self
+                    .resolve_system()
+                    .map_err(|_| e.context(format!("resolving {}", self.host))),
+            };
+        }
+        self.resolve_system()
+    }
+
+    fn resolve_system(&self) -> Result<Vec<SocketAddr>> {
+        Ok((self.host.as_str(), self.port)
+            .to_socket_addrs()
+            .with_context(|| format!("resolving {}", self.host))?
+            .collect())
     }
 
     /// What the server exports right now.

@@ -6,6 +6,8 @@ pub mod backend;
 pub mod ipc;
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "linux")]
+mod mdns;
 pub mod paths;
 pub mod server;
 pub mod supervisor;

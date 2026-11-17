@@ -365,7 +365,14 @@ pub fn prepare_for_kernel(stream: &TcpStream) -> io::Result<()> {
         .with_time(Duration::from_secs(10))
         .with_interval(Duration::from_secs(5))
         .with_retries(3);
-    socket2::SockRef::from(stream).set_tcp_keepalive(&ka)
+    let sock = socket2::SockRef::from(stream);
+    sock.set_tcp_keepalive(&ka)?;
+    // Keepalive only probes idle connections. A device with URBs in flight
+    // (storage polls constantly) would otherwise wait out the retransmission
+    // limit, about 15 minutes, before a dead peer is noticed.
+    #[cfg(target_os = "linux")]
+    sock.set_tcp_user_timeout(Some(Duration::from_secs(30)))?;
+    Ok(())
 }
 
 fn put_header(out: &mut Vec<u8>, code: u16, status: Status) {

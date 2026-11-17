@@ -117,25 +117,21 @@ fn list(server: &Server) -> Result<()> {
         println!("{server} exports no devices right now");
         return Ok(());
     }
-    println!(
-        "{:<20} {:<10} {:<10} INTERFACE CLASSES",
-        "ID", "USB ID", "SPEED"
-    );
+    let mut rows = vec![row(["ID", "USB ID", "SPEED", "INTERFACE CLASSES"])];
     for d in devices {
         let classes: Vec<String> = d
             .interfaces
             .iter()
             .map(|i| format!("{:02x}", i.class))
             .collect();
-        println!(
-            "{:<20} {:04x}:{:04x}  {:<10} {}",
+        rows.push(vec![
             d.device.busid,
-            d.device.vendor_id,
-            d.device.product_id,
+            format!("{:04x}:{:04x}", d.device.vendor_id, d.device.product_id),
             d.device.speed.to_string(),
-            classes.join(" ")
-        );
+            classes.join(" "),
+        ]);
     }
+    print_table(&rows);
     Ok(())
 }
 
@@ -144,21 +140,47 @@ fn print_status(s: &Status) -> Result<()> {
         println!("no devices attached");
         return Ok(());
     }
-    println!(
-        "{:<24} {:<20} {:<11} {:<5} NOTE",
-        "SERVER", "DEVICE", "STATE", "PORT"
-    );
+    let mut rows = vec![row(["SERVER", "DEVICE", "STATE", "PORT", "NOTE"])];
     for d in &s.devices {
-        println!(
-            "{:<24} {:<20} {:<11} {:<5} {}",
-            d.server,
-            d.id,
+        rows.push(vec![
+            d.server.clone(),
+            d.id.clone(),
             d.state.to_string(),
             d.port.map_or("-".into(), |p| p.to_string()),
-            d.error.as_deref().unwrap_or("")
-        );
+            d.error.clone().unwrap_or_default(),
+        ]);
     }
+    print_table(&rows);
     Ok(())
+}
+
+fn row<const N: usize>(cells: [&str; N]) -> Vec<String> {
+    cells.map(str::to_owned).to_vec()
+}
+
+/// Left-aligned columns sized to their widest cell; the last column is not
+/// padded.
+fn print_table(rows: &[Vec<String>]) {
+    let cols = rows.iter().map(Vec::len).max().unwrap_or(0);
+    let widths: Vec<usize> = (0..cols)
+        .map(|c| {
+            rows.iter()
+                .filter_map(|r| r.get(c))
+                .map(|s| s.chars().count())
+                .max()
+                .unwrap_or(0)
+        })
+        .collect();
+    for r in rows {
+        let mut line = String::new();
+        for (c, cell) in r.iter().enumerate() {
+            line.push_str(cell);
+            if c + 1 < r.len() {
+                line.push_str(&" ".repeat(widths[c] - cell.chars().count() + 2));
+            }
+        }
+        println!("{}", line.trim_end());
+    }
 }
 
 fn foreground(server: Server, ids: Vec<String>) -> Result<()> {

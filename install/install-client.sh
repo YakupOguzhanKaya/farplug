@@ -109,7 +109,9 @@ if [ -d /run/systemd/system ]; then
     sudo usermod -aG farplug "$(id -un)"
     sudo install -D -m0644 "$SRC/farplug-agent.service" /etc/systemd/system/farplug-agent.service
     sudo systemctl daemon-reload
-    sudo systemctl enable --now farplug-agent
+    sudo systemctl enable farplug-agent
+    # An agent left running from an older version would not understand the new CLI.
+    sudo systemctl restart farplug-agent
     echo "started farplug-agent"
 else
     echo "no systemd detected; run 'sudo farplug agent' yourself"

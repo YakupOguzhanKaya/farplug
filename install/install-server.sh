@@ -56,7 +56,7 @@ sudo install -D -m0755 "$SRC/farplugd" "$PREFIX/bin/farplugd"
 
 if [ ! -f "$CONFDIR/config.toml" ]; then
     sudo install -D -m0644 "$SRC/config.example.toml" "$CONFDIR/config.toml"
-    echo "wrote starter config to $CONFDIR/config.toml -- edit it before starting"
+    echo "wrote starter config to $CONFDIR/config.toml"
 else
     echo "keeping existing $CONFDIR/config.toml"
 fi
@@ -69,10 +69,13 @@ fi
 if [ -d /run/systemd/system ]; then
     sudo install -D -m0644 "$SRC/farplugd.service" /etc/systemd/system/farplugd.service
     sudo systemctl daemon-reload
+    sudo systemctl enable farplugd
+    # Restarting keeps clients attached; it only picks up the new binary.
+    sudo systemctl restart farplugd
     echo
-    echo "next:  sudo farplugd scan              # find your devices"
-    echo "       sudo \$EDITOR $CONFDIR/config.toml"
-    echo "       sudo systemctl enable --now farplugd"
+    echo "farplugd is running. Next, pick the devices to export:"
+    echo "       sudo farplugd add"
+    echo "Config changes apply on their own; 'sudo farplugd check' shows what matched."
 else
     echo "no systemd detected; run $PREFIX/bin/farplugd --config $CONFDIR/config.toml yourself"
 fi

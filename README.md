@@ -80,10 +80,14 @@ images they are in `linux-modules-extra-$(uname -r)`.
 On the server:
 
 ```sh
-sudo farplugd scan                   # what is plugged in, with vid/pid/serial
-sudo $EDITOR /etc/farplug/config.toml
-sudo systemctl enable --now farplugd
+sudo farplugd add      # pick plugged-in devices to export
+sudo farplugd check    # what each config entry matches
 ```
+
+`add` writes entries like the one below to `/etc/farplug/config.toml`; you can
+also edit the file by hand. The running server applies changes within a
+second: unchanged exports stay connected, removed ones go back to the host,
+and an invalid edit is ignored with a warning in the log.
 
 ```toml
 [device.zigbee]

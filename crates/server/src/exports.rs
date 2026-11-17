@@ -7,7 +7,7 @@ use anyhow::Result;
 use farplug_usbip::{DeviceInfo, ExportedDevice, ServerInfo};
 use tracing::{info, warn};
 
-use crate::config::Config;
+use crate::config::{Config, ExportCfg};
 use crate::sysfs::{StubStatus, SysDevice, Sysfs};
 
 pub struct Exports {
@@ -32,6 +32,27 @@ impl Exports {
             warned_strays: false,
             attached_by: HashMap::new(),
         }
+    }
+
+    /// Apply an edited config. Exports whose entry is gone or no longer
+    /// matches go back to the host; the rest stay bound, so their clients
+    /// stay connected. New entries are bound by the next [`Self::reconcile`].
+    pub fn set_config(&mut self, cfg: Config) {
+        for (id, d) in std::mem::take(&mut self.bound) {
+            match cfg.device.get(&id) {
+                Some(want) if want.matches(&d) => {
+                    self.bound.insert(id, d);
+                }
+                _ => {
+                    info!(device = %id, busid = %d.busid, "no longer in the config; returning it to the host");
+                    if let Err(e) = self.sysfs.release(&d.busid) {
+                        warn!(busid = %d.busid, error = %e, "could not return device to the host");
+                    }
+                }
+            }
+        }
+        self.problems.retain(|id, _| cfg.device.contains_key(id));
+        self.cfg = cfg;
     }
 
     pub fn reconcile(&mut self) -> Result<()> {
@@ -71,11 +92,7 @@ impl Exports {
             if self.bound.contains_key(id) {
                 continue;
             }
-            let candidates: Vec<&SysDevice> = devices
-                .iter()
-                .filter(|d| want.matches(d) && !d.is_hub())
-                .collect();
-            let problem = match candidates.as_slice() {
+            let problem = match candidates(want, &devices).as_slice() {
                 [] => Some("not plugged in".to_owned()),
                 [d] => match claimed.get(d.busid.as_str()) {
                     Some(other) => Some(format!("{} is already exported as {other:?}", d.busid)),
@@ -134,6 +151,10 @@ impl Exports {
         Ok(())
     }
 
+    pub fn config(&self) -> &Config {
+        &self.cfg
+    }
+
     pub fn list(&self) -> Vec<ExportedDevice> {
         self.bound.iter().map(|(id, d)| d.exported(id)).collect()
     }
@@ -176,6 +197,14 @@ impl Exports {
     }
 }
 
+/// The devices a config entry would export; hubs never qualify.
+pub fn candidates<'a>(want: &ExportCfg, devices: &'a [SysDevice]) -> Vec<&'a SysDevice> {
+    devices
+        .iter()
+        .filter(|d| want.matches(d) && !d.is_hub())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -208,6 +237,28 @@ mod tests {
         assert_eq!(ex.find("zigbee").unwrap().busid, "1-1");
         assert_eq!(ex.find("1-1").unwrap().busid, "1-1");
         assert!(ex.find("1-2").is_none());
+    }
+
+    #[test]
+    fn reload_keeps_unchanged_exports_and_releases_removed_ones() {
+        let fs_ = FakeSys::new();
+        fs_.add(FakeDev::default());
+        fs_.add(FakeDev {
+            busid: "1-2",
+            vid: "1a86",
+            pid: "55d4",
+            ..Default::default()
+        });
+        let both = format!("{ZIGBEE}[device.zwave]\nvid = \"1a86\"\npid = \"55d4\"\n");
+        let mut ex = exports(&fs_, &both);
+        ex.reconcile().unwrap();
+        assert_eq!(ex.list().len(), 2);
+
+        ex.set_config(Config::parse(ZIGBEE).unwrap());
+        ex.reconcile().unwrap();
+        let ids: Vec<String> = ex.list().into_iter().map(|d| d.device.busid).collect();
+        assert_eq!(ids, ["zigbee"]);
+        assert_eq!(fs_.read("bus/usb/drivers/usbip-host/rebind"), "1-2");
     }
 
     #[test]

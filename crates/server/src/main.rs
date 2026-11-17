@@ -1,13 +1,18 @@
+mod add;
 mod config;
 mod exports;
 mod sysfs;
+mod table;
 
+use std::collections::BTreeMap;
+use std::fs;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::os::fd::AsRawFd;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use std::time::SystemTime;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
@@ -48,6 +53,14 @@ enum Cmd {
     },
     /// List the USB devices on this machine, to help write the config.
     Scan,
+    /// Pick plugged-in devices and add config entries for them.
+    Add {
+        /// Ports from `scan`, e.g. 1-1.4; without them, asks which.
+        ports: Vec<String>,
+    },
+    /// Validate the config and show which device each entry would export.
+    /// A running server applies config changes on its own.
+    Check,
     /// Give devices back to this machine's own drivers. Clients using them
     /// are disconnected; a running server re-exports them on its next poll.
     Release {
@@ -68,18 +81,28 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     let sysfs = Sysfs::new(&cli.sysfs_root);
     match cli.cmd.unwrap_or(Cmd::Serve { listen: None }) {
-        Cmd::Serve { listen } => serve(Config::load(&cli.config)?, sysfs, listen),
+        Cmd::Serve { listen } => serve(&cli.config, sysfs, listen),
         Cmd::Scan => scan(&sysfs),
+        Cmd::Check => check(&cli.config, &sysfs),
+        Cmd::Add { ports } => add::run(
+            &cli.config,
+            &sysfs,
+            &ports,
+            &mut std::io::stdin().lock(),
+            &mut std::io::stdout(),
+        ),
         Cmd::Release { devices } => release(&cli.config, &sysfs, &devices),
     }
 }
 
-fn serve(cfg: Config, sysfs: Sysfs, listen: Option<String>) -> Result<()> {
+fn serve(config: &Path, sysfs: Sysfs, listen: Option<String>) -> Result<()> {
+    let cfg = Config::load(config)?;
     sysfs.ensure_usbip_host()?;
     if cfg.device.is_empty() {
         warn!("no [device.*] entries in the config; nothing will be exported");
     }
 
+    let fixed_listen = listen.is_some();
     let addr = listen.unwrap_or_else(|| cfg.listen.clone());
     let listener = TcpListener::bind(&addr).with_context(|| format!("listening on {addr}"))?;
     info!(%addr, "listening");
@@ -88,8 +111,15 @@ fn serve(cfg: Config, sysfs: Sysfs, listen: Option<String>) -> Result<()> {
     exports.lock().unwrap().reconcile()?;
 
     let ex = exports.clone();
+    let config = config.to_owned();
+    let mut seen = modified(&config);
     thread::spawn(move || loop {
         thread::sleep(POLL);
+        let now = modified(&config);
+        if now != seen {
+            seen = now;
+            reload(&config, &ex, fixed_listen);
+        }
         if let Err(e) = ex.lock().unwrap().reconcile() {
             warn!(error = %e, "scanning USB devices failed");
         }
@@ -112,6 +142,28 @@ fn serve(cfg: Config, sysfs: Sysfs, listen: Option<String>) -> Result<()> {
         });
     }
     Ok(())
+}
+
+fn modified(path: &Path) -> Option<(SystemTime, u64)> {
+    let m = fs::metadata(path).ok()?;
+    Some((m.modified().ok()?, m.len()))
+}
+
+/// A config that fails to load is ignored; the running one stays in effect.
+fn reload(path: &Path, exports: &Mutex<Exports>, fixed_listen: bool) {
+    let cfg = match Config::load(path) {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("config changed but not applied, keeping the previous one: {e:#}");
+            return;
+        }
+    };
+    let mut ex = exports.lock().unwrap();
+    if !fixed_listen && cfg.listen != ex.config().listen {
+        warn!(listen = %cfg.listen, "the listen address changed; restart farplugd to apply it");
+    }
+    info!(devices = cfg.device.len(), "config changed; applying it");
+    ex.set_config(cfg);
 }
 
 fn handle(mut sock: TcpStream, exports: &Mutex<Exports>) -> Result<()> {
@@ -169,16 +221,68 @@ fn handle(mut sock: TcpStream, exports: &Mutex<Exports>) -> Result<()> {
     Ok(())
 }
 
+fn check(path: &Path, sysfs: &Sysfs) -> Result<()> {
+    let cfg = Config::load(path)?;
+    println!("{}: valid, {} device(s)", path.display(), cfg.device.len());
+    if cfg.device.is_empty() {
+        return Ok(());
+    }
+    let devices = match sysfs.scan() {
+        Ok(d) => d,
+        Err(e) => {
+            println!("cannot read USB devices to check the matchers: {e:#}");
+            return Ok(());
+        }
+    };
+    let mut owners: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    let mut rows = vec![table::row(["ID", "PORT", "USB ID", "RESULT"])];
+    for (id, want) in &cfg.device {
+        let found = exports::candidates(want, &devices);
+        for d in &found {
+            owners.entry(&d.busid).or_default().push(id);
+        }
+        let (port, usb, result) = match found.as_slice() {
+            [] => ("-".into(), "-".into(), "not plugged in".into()),
+            [d] => (
+                d.busid.clone(),
+                format!("{:04x}:{:04x}", d.vendor_id, d.product_id),
+                format!("ok: {}", d.description()),
+            ),
+            many => (
+                many.iter()
+                    .map(|d| d.busid.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                "-".into(),
+                format!("{} devices match; add a serial or port matcher", many.len()),
+            ),
+        };
+        rows.push(vec![id.clone(), port, usb, result]);
+    }
+    table::print(&rows);
+    for (busid, ids) in owners.iter().filter(|(_, ids)| ids.len() > 1) {
+        println!(
+            "warning: {busid} matches {}; only {} exports it",
+            ids.join(", "),
+            ids[0]
+        );
+    }
+    Ok(())
+}
+
 fn scan(sysfs: &Sysfs) -> Result<()> {
     let devices = sysfs.scan()?;
     if devices.is_empty() {
         println!("no USB devices found");
         return Ok(());
     }
-    println!(
-        "{:<10} {:<10} {:<20} {:<16} DESCRIPTION",
-        "PORT", "USB ID", "SERIAL", "DRIVER"
-    );
+    let mut rows = vec![table::row([
+        "PORT",
+        "USB ID",
+        "SERIAL",
+        "DRIVER",
+        "DESCRIPTION",
+    ])];
     for d in &devices {
         let driver = match (d.driver.as_deref(), d.is_hub()) {
             (_, true) => "(hub)".to_owned(),
@@ -189,24 +293,16 @@ fn scan(sysfs: &Sysfs) -> Result<()> {
             (Some(drv), _) => drv.to_owned(),
             (None, _) => "-".to_owned(),
         };
-        println!(
-            "{:<10} {:04x}:{:04x}  {:<20} {:<16} {}",
-            d.busid,
-            d.vendor_id,
-            d.product_id,
-            d.serial.as_deref().unwrap_or("-"),
+        rows.push(vec![
+            d.busid.clone(),
+            format!("{:04x}:{:04x}", d.vendor_id, d.product_id),
+            d.serial.clone().unwrap_or_else(|| "-".into()),
             driver,
-            d.description()
-        );
+            d.description(),
+        ]);
     }
-    println!(
-        "\nExport one by adding to the config, e.g.:\n\n  [device.mydevice]\n  vid = \"{:04x}\"\n  pid = \"{:04x}\"",
-        devices[0].vendor_id, devices[0].product_id
-    );
-    if let Some(s) = &devices[0].serial {
-        println!("  serial = \"{s}\"");
-    }
-    println!("\nUse `port = \"<PORT>\"` instead when identical devices have no serial.");
+    table::print(&rows);
+    println!("\nRun `sudo farplugd add` to pick devices to export.");
     Ok(())
 }
 

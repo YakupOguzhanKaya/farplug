@@ -91,13 +91,15 @@ kill $FAKE
 
 echo "=== farplugd vs stock usbip"
 S=$T/sys
-mkdir -p $S/bus/usb/drivers/usbip-host $S/bus/usb/drivers/usb $S/bus/usb/devices/2-1/2-1:1.0
+mkdir -p $S/bus/usb/drivers/usbip-host $S/bus/usb/drivers/usb
 for f in bind unbind rebind match_busid; do : >$S/bus/usb/drivers/usbip-host/$f; done
 : >$S/bus/usb/drivers/usb/unbind
-D=$S/bus/usb/devices/2-1
-while read -r k v; do echo "$v" >$D/$k; done <<EOF
-idVendor 10c4
-idProduct ea60
+fakedev() { # busid vid pid product devnum
+    local D=$S/bus/usb/devices/$1
+    mkdir -p $D/$1:1.0
+    while read -r k v; do echo "$v" >$D/$k; done <<EOF
+idVendor $2
+idProduct $3
 bcdDevice 0100
 bDeviceClass 00
 bDeviceSubClass 00
@@ -106,14 +108,17 @@ bConfigurationValue 1
 bNumConfigurations 1
 bNumInterfaces 1
 busnum 2
-devnum 3
+devnum $5
 speed 12
-product CP2102N
+product $4
 usbip_status 1
 EOF
-: >$D/usbip_sockfd
-echo ff >$D/2-1:1.0/bInterfaceClass
-ln -s ../../drivers/usb $D/driver
+    : >$D/usbip_sockfd
+    echo ff >$D/$1:1.0/bInterfaceClass
+    ln -s ../../drivers/usb $D/driver
+}
+fakedev 2-1 10c4 ea60 CP2102N 3
+D=$S/bus/usb/devices/2-1
 cat >$T/config.toml <<EOF
 listen = "127.0.0.1:3242"
 [device.zigbee]
@@ -144,6 +149,24 @@ echo 2 >$D/usbip_status
 $BIN/farplug --server 127.0.0.1:3242 list >"$T/farplug-list-used.txt" 2>&1
 grep -q '^zigbee .*in use by 127.0.0.1' "$T/farplug-list-used.txt" \
     && pass "farplug list shows who uses a device" || fail "farplug list: $(cat $T/farplug-list-used.txt)"
+
+$BIN/farplugd --config $T/config.toml --sysfs-root $S check >"$T/check.txt" 2>&1
+grep -q '^zigbee .*2-1 .*ok' "$T/check.txt" && pass "farplugd check" || fail "farplugd check: $(cat $T/check.txt)"
+
+# Plug in a second device, add it interactively, and expect the running
+# server to export it without a restart; then remove it from the config.
+fakedev 2-2 1a86 55d4 "ZST39" 4
+printf '1\nzwave\n\ny\n' | $BIN/farplugd --config $T/config.toml --sysfs-root $S add >"$T/add.txt" 2>&1
+grep -q '^\[device.zwave\]' $T/config.toml && pass "farplugd add wrote the entry" || fail "add: $(cat $T/add.txt)"
+wait_for 5 sh -c "$BIN/farplug --server 127.0.0.1:3242 list | grep -q '^zwave '" \
+    && pass "running server applied the added device" || fail "added device not exported"
+sed -i '/^\[device.zwave\]/,$d' $T/config.toml
+wait_for 5 sh -c "! $BIN/farplug --server 127.0.0.1:3242 list | grep -q '^zwave '" \
+    && pass "running server dropped the removed device" || fail "removed device still exported"
+grep -q 2-2 $S/bus/usb/drivers/usbip-host/rebind && pass "removed device returned to the host" \
+    || fail "removed device not released"
+$BIN/farplug --server 127.0.0.1:3242 list | grep -q '^zigbee ' && pass "unchanged export kept" \
+    || fail "zigbee lost on reload"
 kill $SERVER
 
 for f in "$T"/*.log "$T"/*.txt; do echo "--- $(basename "$f")"; cat "$f"; done

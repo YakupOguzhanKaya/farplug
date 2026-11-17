@@ -1,10 +1,14 @@
-//! How the CLI and GUI talk to the agent: one JSON line each way over a
-//! loopback TCP connection. The agent publishes its port and a random token
-//! in a file only permitted users can read, so reading that file is the
-//! permission check.
+//! How the CLI and GUI talk to the agent: one JSON line each way.
+//!
+//! On Linux that is a Unix socket, and the agent checks who connected (see
+//! [`crate::auth`]). Elsewhere the agent runs per user and listens on loopback
+//! TCP; it publishes its port and a random token in a file only that user can
+//! read, so reading the file is the permission check.
 
+#[cfg(not(target_os = "linux"))]
 use std::fs;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
+#[cfg(not(target_os = "linux"))]
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::time::Duration;
 
@@ -82,6 +86,7 @@ pub struct Endpoint {
 
 #[derive(Serialize, Deserialize)]
 struct Envelope {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     token: String,
     #[serde(flatten)]
     request: Request,
@@ -96,26 +101,43 @@ enum Reply {
 
 /// Send one request to the running agent.
 pub fn call(paths: &Paths, request: Request) -> Result<Status> {
-    let ep = read_endpoint(paths)?;
-    let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, ep.port));
-    let mut sock = TcpStream::connect_timeout(&addr, TIMEOUT).map_err(|e| {
-        anyhow!("the farplug agent is not running ({e}); start it with `farplug agent`")
-    })?;
-    sock.set_read_timeout(Some(TIMEOUT))?;
-    sock.set_write_timeout(Some(TIMEOUT))?;
-    write_line(
-        &mut sock,
-        &Envelope {
-            token: ep.token,
-            request,
-        },
-    )?;
+    let (mut sock, token) = connect(paths)?;
+    write_line(&mut sock, &Envelope { token, request })?;
     match read_line::<Reply>(&mut sock).context("reading the agent's reply")? {
         Reply::Ok(status) => Ok(status),
         Reply::Error(e) => Err(anyhow!(e)),
     }
 }
 
+#[cfg(target_os = "linux")]
+fn connect(paths: &Paths) -> Result<(std::os::unix::net::UnixStream, String)> {
+    use std::os::unix::net::UnixStream;
+    let p = &paths.endpoint;
+    let sock = UnixStream::connect(p).map_err(|e| match e.kind() {
+        io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused => anyhow!(
+            "the farplug agent is not running; start it with \
+             `sudo systemctl start farplug-agent`"
+        ),
+        _ => anyhow!("connecting to the farplug agent at {}: {e}", p.display()),
+    })?;
+    sock.set_read_timeout(Some(TIMEOUT))?;
+    sock.set_write_timeout(Some(TIMEOUT))?;
+    Ok((sock, String::new()))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn connect(paths: &Paths) -> Result<(TcpStream, String)> {
+    let ep = read_endpoint(paths)?;
+    let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, ep.port));
+    let sock = TcpStream::connect_timeout(&addr, TIMEOUT).map_err(|e| {
+        anyhow!("the farplug agent is not running ({e}); start it with `farplug agent`")
+    })?;
+    sock.set_read_timeout(Some(TIMEOUT))?;
+    sock.set_write_timeout(Some(TIMEOUT))?;
+    Ok((sock, ep.token))
+}
+
+#[cfg(not(target_os = "linux"))]
 fn read_endpoint(paths: &Paths) -> Result<Endpoint> {
     let p = &paths.endpoint;
     let text = match fs::read_to_string(p) {
@@ -123,18 +145,13 @@ fn read_endpoint(paths: &Paths) -> Result<Endpoint> {
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             bail!("the farplug agent is not running; start it with `farplug agent`")
         }
-        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => bail!(
-            "no permission to read {}; add yourself to the `farplug` group \
-             (sudo usermod -aG farplug $USER) and log in again",
-            p.display()
-        ),
         Err(e) => return Err(e).with_context(|| format!("reading {}", p.display())),
     };
     serde_json::from_str(&text).with_context(|| format!("parsing {}", p.display()))
 }
 
 /// Agent side: read a request and check its token.
-pub fn read_request(sock: &mut TcpStream, token: &str) -> Result<Request> {
+pub fn read_request(sock: &mut impl Read, token: &str) -> Result<Request> {
     let env: Envelope = read_line(sock)?;
     if env.token != token {
         bail!("bad token");
@@ -142,7 +159,7 @@ pub fn read_request(sock: &mut TcpStream, token: &str) -> Result<Request> {
     Ok(env.request)
 }
 
-pub fn write_reply(sock: &mut TcpStream, result: Result<Status>) -> Result<()> {
+pub fn write_reply(sock: &mut impl Write, result: Result<Status>) -> Result<()> {
     let reply = match result {
         Ok(s) => Reply::Ok(s),
         Err(e) => Reply::Error(format!("{e:#}")),
@@ -150,16 +167,16 @@ pub fn write_reply(sock: &mut TcpStream, result: Result<Status>) -> Result<()> {
     write_line(sock, &reply)
 }
 
-fn write_line<T: Serialize>(sock: &mut TcpStream, v: &T) -> Result<()> {
+fn write_line<T: Serialize>(sock: &mut impl Write, v: &T) -> Result<()> {
     let mut line = serde_json::to_vec(v)?;
     line.push(b'\n');
     sock.write_all(&line)?;
     Ok(())
 }
 
-fn read_line<T: for<'de> Deserialize<'de>>(sock: &mut TcpStream) -> Result<T> {
+fn read_line<T: for<'de> Deserialize<'de>>(sock: &mut impl Read) -> Result<T> {
     let mut line = String::new();
-    BufReader::new(io::Read::take(&mut *sock, MAX_LINE)).read_line(&mut line)?;
+    BufReader::new(sock.take(MAX_LINE)).read_line(&mut line)?;
     if line.is_empty() {
         bail!("connection closed");
     }

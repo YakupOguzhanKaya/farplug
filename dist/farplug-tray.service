@@ -1,0 +1,14 @@
+# Starts the tray icon with the graphical session, for desktops that do not
+# run XDG autostart entries (Hyprland and other compositors started by uwsm).
+[Unit]
+Description=farplug tray icon
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/local/bin/farplug-gui --tray
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

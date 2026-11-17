@@ -26,6 +26,11 @@ enum Health {
 }
 
 pub fn run() -> Result<()> {
+    // Both XDG autostart and the systemd user unit may start the tray.
+    #[cfg(target_os = "linux")]
+    let Some(_instance) = single_instance() else {
+        return Ok(());
+    };
     #[cfg(target_os = "linux")]
     gtk::init().map_err(|e| anyhow!("starting GTK for the tray icon: {e}"))?;
 
@@ -198,6 +203,18 @@ fn icon(h: Health) -> Icon {
         }
     }
     Icon::from_rgba(rgba, N, N).expect("icon dimensions match its buffer")
+}
+
+/// Held for as long as this tray runs; None if another one already is.
+#[cfg(target_os = "linux")]
+fn single_instance() -> Option<std::os::unix::net::UnixListener> {
+    use std::os::linux::net::SocketAddrExt;
+    use std::os::unix::fs::MetadataExt;
+    use std::os::unix::net::{SocketAddr, UnixListener};
+
+    let uid = std::fs::metadata("/proc/self").map_or(0, |m| m.uid());
+    let addr = SocketAddr::from_abstract_name(format!("farplug-tray-{uid}")).ok()?;
+    UnixListener::bind_addr(&addr).ok()
 }
 
 #[cfg(target_os = "linux")]

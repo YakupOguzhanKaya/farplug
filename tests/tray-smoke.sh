@@ -1,6 +1,6 @@
 #!/bin/bash
 # Starts the tray against a live agent under Xvfb + a D-Bus session and checks
-# it stays up and toggles a device through its menu-independent code path.
+# it stays up, and that a second tray exits instead of adding another icon.
 set -u
 cd /work
 export DEBIAN_FRONTEND=noninteractive
@@ -17,5 +17,9 @@ $BIN/farplug --server 127.0.0.1:3241 attach zigbee >/dev/null
 Xvfb :99 >/dev/null 2>&1 &
 sleep 1
 export DISPLAY=:99
-dbus-run-session -- sh -c "RUST_LOG=info $BIN/farplug-gui --tray >$T/tray.log 2>&1 & sleep 6; kill -0 \$! && echo TRAY_ALIVE; kill \$!"
+dbus-run-session -- sh -c "RUST_LOG=info $BIN/farplug-gui --tray >$T/tray.log 2>&1 & P=\$!; sleep 6
+    kill -0 \$P && echo TRAY_ALIVE
+    timeout 5 $BIN/farplug-gui --tray && echo SECOND_TRAY_EXITED
+    kill -0 \$P && echo FIRST_TRAY_STILL_ALIVE
+    kill \$P"
 cat $T/tray.log

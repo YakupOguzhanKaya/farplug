@@ -2,6 +2,8 @@
 //! local agent that the CLI and GUI control.
 
 pub mod agent;
+#[cfg(target_os = "linux")]
+mod auth;
 pub mod backend;
 pub mod ipc;
 #[cfg(target_os = "linux")]

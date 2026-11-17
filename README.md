@@ -114,7 +114,7 @@ On Windows there is no service. The agent runs in your session, and the GUI
 starts it if it is not running.
 
 On Linux, members of the `farplug` group can control the agent without
-`sudo`; the client installer adds you. `farplug attach --foreground` attaches
+`sudo`; the client installer adds you, and it takes effect right away. `farplug attach --foreground` attaches
 without the agent, until Ctrl-C, which needs root on Linux.
 
 The stock tools also work against the server:

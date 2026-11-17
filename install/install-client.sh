@@ -110,7 +110,7 @@ if [ -d /run/systemd/system ]; then
     sudo install -D -m0644 "$SRC/farplug-agent.service" /etc/systemd/system/farplug-agent.service
     sudo systemctl daemon-reload
     sudo systemctl enable --now farplug-agent
-    echo "started farplug-agent; log out and in again so the farplug group applies"
+    echo "started farplug-agent"
 else
     echo "no systemd detected; run 'sudo farplug agent' yourself"
 fi
@@ -123,7 +123,19 @@ if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] || [ "${FARPLUG_GUI:-}" = 1 ]; then
         sudo install -D -m0755 "$TMP/$GUI/farplug-gui" "$PREFIX/bin/farplug-gui"
         sudo install -D -m0644 "$TMP/$GUI/farplug.desktop" /usr/share/applications/farplug.desktop
         install -D -m0644 "$TMP/$GUI/farplug-tray.desktop" "$HOME/.config/autostart/farplug-tray.desktop"
-        echo "installed farplug-gui; the tray icon starts at your next login"
+        if [ -f "$TMP/$GUI/farplug-tray.service" ]; then
+            sed "s|/usr/local/bin/farplug-gui|$PREFIX/bin/farplug-gui|" "$TMP/$GUI/farplug-tray.service" \
+                | sudo tee /etc/systemd/user/farplug-tray.service >/dev/null
+            systemctl --user daemon-reload 2>/dev/null || true
+            systemctl --user enable farplug-tray 2>/dev/null || true
+        fi
+        # Start it now rather than at the next login; a second copy exits on its own.
+        pkill -f 'farplug-gui --tray' 2>/dev/null || true
+        if ! { systemctl --user is-active -q graphical-session.target 2>/dev/null \
+                && systemctl --user restart farplug-tray 2>/dev/null; }; then
+            (setsid "$PREFIX/bin/farplug-gui" --tray >/dev/null 2>&1 &)
+        fi
+        echo "installed farplug-gui and started its tray icon; it also starts at every login"
         echo "(the tray icon needs libayatana-appindicator3-1, or on GNOME the AppIndicator extension)"
     else
         echo "warning: could not download $GUI.tar.gz; skipping the GUI" >&2

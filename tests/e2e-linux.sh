@@ -37,7 +37,7 @@ fi
 
 $BIN/farplug check >/dev/null && pass "check finds vhci_hcd" || fail "check"
 export FARPLUG_AGENT_DIR=$T/agent
-start_agent() { $BIN/farplug agent >>"$T/agent.log" 2>&1 & AGENT=$!; wait_for 5 test -f $T/agent/agent.json; }
+start_agent() { $BIN/farplug agent >>"$T/agent.log" 2>&1 & AGENT=$!; wait_for 5 test -S $T/agent/agent.sock; }
 start_agent
 $BIN/farplug --server 127.0.0.1:3241 attach fake1 nosuch >/dev/null
 wait_for 10 fake_enumerated && pass "device enumerated on vhci_hcd" || fail "device not enumerated"
@@ -45,6 +45,20 @@ $BIN/farplug status >"$T/status.txt"
 grep -q 'fake1 .*attached' "$T/status.txt" && pass "status shows attached" || fail "status: $(cat $T/status.txt)"
 wait_for 5 sh -c "$BIN/farplug status | grep nosuch | grep -q 'no such device'" \
     && pass "unknown id reported" || fail "unknown id not reported"
+
+# A session that predates the group change: setpriv drops all supplementary
+# groups, as a login from before `usermod -aG` would have.
+chmod 711 "$T"
+getent group farplug >/dev/null || groupadd --system farplug
+id alice >/dev/null 2>&1 || useradd alice
+as_alice() { setpriv --reuid alice --regid alice --clear-groups "$@"; }
+as_alice $BIN/farplug status 2>&1 | grep -q 'not in the `farplug` group' \
+    && pass "non-member refused" || fail "non-member: $(as_alice $BIN/farplug status 2>&1)"
+usermod -aG farplug alice
+as_alice $BIN/farplug status 2>&1 | grep -q 'fake1 .*attached' \
+    && pass "new group member allowed without logging in again" \
+    || fail "new member: $(as_alice $BIN/farplug status 2>&1)"
+gpasswd -d alice farplug >/dev/null
 
 kill $FAKE; wait $FAKE 2>/dev/null
 wait_for 10 sh -c '! grep -qE "^hs +[0-9]+ 006 " /sys/devices/platform/vhci_hcd.0/status' \

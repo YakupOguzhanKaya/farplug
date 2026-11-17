@@ -3,18 +3,17 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Write;
-use std::net::{Ipv4Addr, TcpListener};
+use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 
-use crate::ipc::{self, DeviceState, DeviceStatus, Endpoint, Request, Status};
+use crate::ipc::{self, DeviceState, DeviceStatus, Request, Status};
 use crate::paths::Paths;
 use crate::supervisor::keep_attached;
 use crate::{Backend, Server};
@@ -54,48 +53,94 @@ struct Inner {
 /// Run the agent until SIGINT/SIGTERM (or Ctrl-C), then detach everything.
 pub fn run(paths: Paths) -> Result<()> {
     let agent = Arc::new(Agent::new(crate::backend::platform()?, &paths)?);
-
-    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
-    let token = new_token()?;
-    let endpoint = Endpoint {
-        port: listener.local_addr()?.port(),
-        token: token.clone(),
-    };
-    publish(&paths.endpoint, &endpoint)?;
-    info!(port = endpoint.port, "agent listening");
+    listen(agent.clone(), &paths)?;
 
     let (tx, rx) = mpsc::channel();
     ctrlc::set_handler(move || {
         let _ = tx.send(());
     })
     .context("installing the signal handler")?;
-
-    let a = agent.clone();
-    thread::spawn(move || {
-        for conn in listener.incoming() {
-            let Ok(mut sock) = conn else { continue };
-            let a = a.clone();
-            let token = token.clone();
-            thread::spawn(move || {
-                let result = ipc::read_request(&mut sock, &token).map(|req| {
-                    debug!(?req, "request");
-                    a.handle(req)
-                });
-                match result {
-                    Ok(reply) => {
-                        let _ = ipc::write_reply(&mut sock, reply);
-                    }
-                    Err(e) => debug!(error = %e, "bad request"),
-                }
-            });
-        }
-    });
-
     let _ = rx.recv();
     info!("stopping; detaching all devices");
     let _ = fs::remove_file(&paths.endpoint);
     agent.shutdown();
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn listen(agent: Arc<Agent>, paths: &Paths) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::net::{UnixListener, UnixStream};
+
+    let path = &paths.endpoint;
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+    }
+    if UnixStream::connect(path).is_ok() {
+        bail!(
+            "another farplug agent is already listening on {}",
+            path.display()
+        );
+    }
+    let _ = fs::remove_file(path);
+    let listener =
+        UnixListener::bind(path).with_context(|| format!("listening on {}", path.display()))?;
+    // Anyone may connect; crate::auth decides whose requests are carried out.
+    fs::set_permissions(path, fs::Permissions::from_mode(0o666))?;
+    info!(socket = %path.display(), "agent listening");
+
+    thread::spawn(move || {
+        for conn in listener.incoming() {
+            let Ok(mut sock) = conn else { continue };
+            let a = agent.clone();
+            thread::spawn(move || {
+                let allowed = crate::auth::peer(&sock)
+                    .map_err(|e| format!("checking who connected: {e}"))
+                    .and_then(|p| crate::auth::authorize(&p));
+                serve(&a, &mut sock, "", allowed);
+            });
+        }
+    });
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn listen(agent: Arc<Agent>, paths: &Paths) -> Result<()> {
+    use std::net::{Ipv4Addr, TcpListener};
+
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
+    let token = new_token()?;
+    let endpoint = ipc::Endpoint {
+        port: listener.local_addr()?.port(),
+        token: token.clone(),
+    };
+    write_atomic(&paths.endpoint, &serde_json::to_vec(&endpoint)?, true)?;
+    info!(port = endpoint.port, "agent listening");
+
+    thread::spawn(move || {
+        for conn in listener.incoming() {
+            let Ok(mut sock) = conn else { continue };
+            let (a, token) = (agent.clone(), token.clone());
+            thread::spawn(move || serve(&a, &mut sock, &token, Ok(())));
+        }
+    });
+    Ok(())
+}
+
+fn serve(agent: &Agent, sock: &mut (impl Read + Write), token: &str, allowed: Result<(), String>) {
+    let result = ipc::read_request(sock, token).map(|req| {
+        debug!(?req, "request");
+        match allowed {
+            Ok(()) => agent.handle(req),
+            Err(e) => Err(anyhow!(e)),
+        }
+    });
+    match result {
+        Ok(reply) => {
+            let _ = ipc::write_reply(sock, reply);
+        }
+        Err(e) => debug!(error = %e, "bad request"),
+    }
 }
 
 impl Agent {
@@ -269,18 +314,14 @@ fn status(inner: &Inner) -> Status {
     }
 }
 
+#[cfg(not(target_os = "linux"))]
 fn new_token() -> Result<String> {
     let mut b = [0u8; 16];
-    getrandom::getrandom(&mut b).map_err(|e| anyhow::anyhow!("no randomness: {e}"))?;
+    getrandom::getrandom(&mut b).map_err(|e| anyhow!("no randomness: {e}"))?;
     Ok(b.iter().map(|x| format!("{x:02x}")).collect())
 }
 
-fn publish(path: &Path, ep: &Endpoint) -> Result<()> {
-    write_atomic(path, &serde_json::to_vec(ep)?, true)
-}
-
-/// `secret` files are readable by the owner and, on Unix, the `farplug`
-/// group if it exists, which is how desktop users get to use the agent.
+/// `secret` files are readable only by their owner.
 fn write_atomic(path: &Path, data: &[u8], secret: bool) -> Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
@@ -293,34 +334,14 @@ fn write_atomic(path: &Path, data: &[u8], secret: bool) -> Result<()> {
         use std::os::unix::fs::OpenOptionsExt;
         opts.mode(if secret { 0o600 } else { 0o644 });
     }
+    #[cfg(not(unix))]
+    let _ = secret;
     let mut f = opts
         .open(&tmp)
         .with_context(|| format!("writing {}", tmp.display()))?;
     f.write_all(data)?;
-    #[cfg(unix)]
-    if secret {
-        if let Some(gid) = group_id("farplug") {
-            use std::os::unix::fs::PermissionsExt;
-            std::os::unix::fs::chown(&tmp, None, Some(gid))?;
-            fs::set_permissions(&tmp, fs::Permissions::from_mode(0o640))?;
-        }
-    }
-    #[cfg(not(unix))]
-    let _ = secret;
     drop(f);
     fs::rename(&tmp, path).with_context(|| format!("writing {}", path.display()))
-}
-
-#[cfg(unix)]
-fn group_id(name: &str) -> Option<u32> {
-    fs::read_to_string("/etc/group")
-        .ok()?
-        .lines()
-        .find_map(|l| {
-            let mut f = l.split(':');
-            (f.next()? == name).then_some(())?;
-            f.nth(1)?.parse().ok()
-        })
 }
 
 #[cfg(test)]

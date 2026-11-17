@@ -1,8 +1,15 @@
 use std::env;
 use std::path::PathBuf;
 
-/// Where the agent publishes how to reach it, and where it keeps the list of
-/// devices to re-attach.
+/// The agent's socket on Linux, or elsewhere the file where it publishes its
+/// port and token.
+#[cfg(target_os = "linux")]
+const ENDPOINT: &str = "agent.sock";
+#[cfg(not(target_os = "linux"))]
+const ENDPOINT: &str = "agent.json";
+
+/// How to reach the agent, and where it keeps the list of devices to
+/// re-attach.
 #[derive(Debug, Clone)]
 pub struct Paths {
     pub endpoint: PathBuf,
@@ -14,7 +21,7 @@ impl Default for Paths {
         if let Some(dir) = env::var_os("FARPLUG_AGENT_DIR") {
             let dir = PathBuf::from(dir);
             return Self {
-                endpoint: dir.join("agent.json"),
+                endpoint: dir.join(ENDPOINT),
                 state: dir.join("state.json"),
             };
         }
@@ -32,7 +39,7 @@ impl Paths {
             .unwrap_or_else(env::temp_dir)
             .join("farplug");
         Self {
-            endpoint: base.join("agent.json"),
+            endpoint: base.join(ENDPOINT),
             state: base.join("state.json"),
         }
     }
@@ -45,7 +52,7 @@ impl Paths {
             .unwrap_or_else(env::temp_dir)
             .join("Library/Application Support/farplug");
         Self {
-            endpoint: base.join("agent.json"),
+            endpoint: base.join(ENDPOINT),
             state: base.join("state.json"),
         }
     }
@@ -53,7 +60,7 @@ impl Paths {
     #[cfg(not(any(windows, target_os = "macos")))]
     fn platform() -> Self {
         Self {
-            endpoint: PathBuf::from("/run/farplug/agent.json"),
+            endpoint: PathBuf::from("/run/farplug").join(ENDPOINT),
             state: PathBuf::from("/var/lib/farplug/state.json"),
         }
     }

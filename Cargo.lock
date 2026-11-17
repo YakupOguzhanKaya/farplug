@@ -1257,7 +1257,7 @@ dependencies = [
 
 [[package]]
 name = "farplug"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -1276,7 +1276,7 @@ dependencies = [
 
 [[package]]
 name = "farplug-gui"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "eframe",
@@ -1291,7 +1291,7 @@ dependencies = [
 
 [[package]]
 name = "farplug-usbip"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -1301,7 +1301,7 @@ dependencies = [
 
 [[package]]
 name = "farplugd"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "clap",

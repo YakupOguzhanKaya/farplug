@@ -8,7 +8,8 @@
 # Every matcher you set must match; if several devices match, none is exported.
 # Restart farplugd after editing: sudo systemctl restart farplugd
 
-listen = "0.0.0.0:3240"
+# Dual-stack (IPv4 + IPv6). Use "0.0.0.0:3240" for IPv4-only.
+listen = "[::]:3240"
 
 # Also export every device no [device.*] block matches, under a generated id
 # (name plus serial, or plus port). Hubs, network adapters and storage are

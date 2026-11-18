@@ -24,7 +24,7 @@ pub struct Config {
 }
 
 fn default_listen() -> String {
-    format!("0.0.0.0:{DEFAULT_PORT}")
+    format!("[::]:{DEFAULT_PORT}")
 }
 
 /// One exported device. Every matcher that is set must match.
@@ -134,7 +134,7 @@ mod tests {
             "#,
         )
         .unwrap();
-        assert_eq!(cfg.listen, "0.0.0.0:3240");
+        assert_eq!(cfg.listen, "[::]:3240");
         assert_eq!(cfg.device["zigbee"].pid, Some(0xea60));
         assert_eq!(cfg.device["printer"].port.as_deref(), Some("1-1.4"));
 

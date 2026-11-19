@@ -23,7 +23,7 @@ use windows_sys::Win32::System::IO::DeviceIoControl;
 use crate::winabi::{self, Imported};
 use crate::{Attached, Backend, Server};
 
-const INSTALL_HINT: &str = "install usbip-win2 (tested with 0.9.8.1) from \
+const INSTALL_HINT: &str = "install usbip-win2 0.9.8.1 from \
                             https://github.com/vadimgrn/usbip-win2/releases";
 
 pub struct UsbipWin2;
@@ -201,6 +201,13 @@ impl Vhci {
 /// have no Windows message text.
 fn explain(e: io::Error) -> anyhow::Error {
     match e.raw_os_error() {
+        // ERROR_INSUFFICIENT_BUFFER / ERROR_INVALID_USER_BUFFER from the plugin
+        // IOCTL mean the installed usbip-win2 ABI does not match this build.
+        Some(code) if code == ERROR_INSUFFICIENT_BUFFER as i32 || code == 1784 => {
+            anyhow::anyhow!(
+                "usbip-win2 ABI mismatch (os error {code}); {INSTALL_HINT}"
+            )
+        }
         Some(code) if (code as u32) & 0x2000_0000 != 0 => anyhow::anyhow!(
             "usbip-win2 driver error {:#010x} (the server refused, or this usbip-win2 \
              version is not compatible; {INSTALL_HINT})",

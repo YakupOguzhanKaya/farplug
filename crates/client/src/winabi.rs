@@ -1,8 +1,8 @@
 //! Byte layouts of the usbip-win2 VHCI driver's IOCTLs (include/usbip/vhci.h).
 //!
-//! Only the IOCTLs and fields whose offsets are identical in release
-//! v.0.9.8.1 and on master are used: the two disagree on the rest of
-//! `imported_device`. Kept platform-neutral so it is tested on every OS.
+//! Byte layouts match usbip-win2 v0.9.8.1, the version pinned by
+//! install/install-client.ps1. Kept platform-neutral so it is tested on
+//! every OS.
 #![cfg_attr(not(windows), allow(dead_code))]
 
 use anyhow::{bail, Result};
@@ -28,10 +28,12 @@ const SERVICE: (usize, usize) = (32, 32);
 const HOST: (usize, usize) = (64, 1025);
 const LOCATION_LEN: usize = 32 + 32 + 1025;
 
-/// `struct plugin_hardware : base { int port; ULONG location_hash;
-/// imported_device_config config; }`, padded to 4.
-pub const PLUGIN_LEN: usize = 1120;
+/// `struct plugin_hardware : base, imported_device_location {
+/// char serial[16]; bool wsk_events; }`, padded to 4.
+pub const PLUGIN_LEN: usize = 1124;
 const PLUGIN_LOCATION: usize = 12;
+const PLUGIN_SERIAL: (usize, usize) = (1104, 16);
+const PLUGIN_WSK_EVENTS: usize = 1120;
 /// The driver writes back `size` and `port` only.
 pub const PLUGIN_REPLY_LEN: usize = 8;
 
@@ -43,6 +45,9 @@ const DEVICES_OFFSET: usize = 4;
 /// `sizeof(get_imported_devices)`, which has a one-element array.
 const GET_IMPORTED_SIZE: u32 = (DEVICES_OFFSET + IMPORTED_DEVICE_LEN) as u32;
 
+const _: () = assert!(PLUGIN_LOCATION + LOCATION_LEN == 1101);
+const _: () = assert!(PLUGIN_SERIAL.0 == 1104 && PLUGIN_SERIAL.1 == 16);
+const _: () = assert!(PLUGIN_WSK_EVENTS == 1120);
 const _: () = assert!(PLUGIN_LOCATION + LOCATION_LEN + 16 < PLUGIN_LEN);
 const _: () = assert!(IMPORTED_LOCATION + LOCATION_LEN <= IMPORTED_DEVICE_LEN);
 
@@ -146,12 +151,15 @@ mod tests {
     #[test]
     fn plugin_request_layout() {
         let b = plugin_request("usbgw.local", 3240, "zigbee").unwrap();
-        assert_eq!(b.len(), 1120);
-        assert_eq!(&b[..4], &1120u32.to_le_bytes());
+        assert_eq!(b.len(), 1124);
+        assert_eq!(&b[..4], &1124u32.to_le_bytes());
         assert_eq!(&b[12..18], b"zigbee");
         assert_eq!(&b[44..48], b"3240");
         assert_eq!(&b[76..87], b"usbgw.local");
-        assert!(b[87..].iter().all(|&c| c == 0));
+        assert_eq!(PLUGIN_SERIAL.0, 1104);
+        assert_eq!(PLUGIN_WSK_EVENTS, 1120);
+        assert!(b[87..PLUGIN_SERIAL.0].iter().all(|&c| c == 0));
+        assert!(b[PLUGIN_SERIAL.0..PLUGIN_LEN].iter().all(|&c| c == 0));
         assert!(plugin_request("h", 1, &"x".repeat(32)).is_err());
     }
 

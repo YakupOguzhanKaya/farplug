@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 use anyhow::bail;
 use anyhow::Result;
 
@@ -21,9 +21,19 @@ pub struct Attached {
     pub devid: u32,
 }
 
+/// `FARPLUG_BACKEND=user` selects the userspace backend that macOS uses, so
+/// it can be tested on Linux.
 #[cfg(target_os = "linux")]
 pub fn platform() -> Result<Arc<dyn Backend>> {
+    if std::env::var_os("FARPLUG_BACKEND").is_some_and(|v| v == "user") {
+        return Ok(Arc::new(crate::user::UserSpace::new()));
+    }
     Ok(Arc::new(crate::linux::VhciHcd::new()?))
+}
+
+#[cfg(target_os = "macos")]
+pub fn platform() -> Result<Arc<dyn Backend>> {
+    Ok(Arc::new(crate::user::UserSpace::new()))
 }
 
 #[cfg(windows)]
@@ -32,19 +42,18 @@ pub fn platform() -> Result<Arc<dyn Backend>> {
 }
 
 /// Lets the agent, GUI and CLI run everywhere; only attaching itself fails.
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 pub fn platform() -> Result<Arc<dyn Backend>> {
     Ok(Arc::new(Unsupported))
 }
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 struct Unsupported;
 
-#[cfg(not(any(target_os = "linux", windows)))]
-const UNSUPPORTED: &str =
-    "attaching devices is not supported on this OS yet; macOS support is planned";
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+const UNSUPPORTED: &str = "attaching devices is not supported on this OS";
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 impl Backend for Unsupported {
     fn attach(&self, _: &Server, _: &str) -> Result<Attached> {
         bail!(UNSUPPORTED)
@@ -59,8 +68,8 @@ impl Backend for Unsupported {
 
 /// Whether this machine can attach devices: driver installed and loaded.
 pub fn check() -> Result<()> {
-    #[cfg(not(any(target_os = "linux", windows)))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     bail!(UNSUPPORTED);
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
     platform().map(|_| ())
 }

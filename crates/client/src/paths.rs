@@ -65,3 +65,17 @@ impl Paths {
         }
     }
 }
+
+/// Where stable links to serial ports are made, on systems where farplug
+/// offers devices as serial ports: a short path without spaces, so it is
+/// easy to type into other programs.
+#[cfg(unix)]
+pub fn serial_dir() -> PathBuf {
+    if let Some(dir) = env::var_os("FARPLUG_AGENT_DIR") {
+        return PathBuf::from(dir).join("serial");
+    }
+    env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(env::temp_dir)
+        .join(".farplug/serial")
+}

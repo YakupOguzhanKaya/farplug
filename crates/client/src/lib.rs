@@ -11,8 +11,13 @@ mod linux;
 #[cfg(target_os = "linux")]
 mod mdns;
 pub mod paths;
+#[cfg(unix)]
+pub mod serial;
 pub mod server;
 pub mod supervisor;
+#[cfg(unix)]
+mod user;
+pub mod userhost;
 #[cfg(target_os = "linux")]
 mod vhci;
 mod winabi;

@@ -4,6 +4,8 @@
 //! Once an import succeeds the same TCP connection carries URB traffic, which on
 //! Linux is handled entirely by the kernel (`usbip-host` / `vhci_hcd`).
 
+pub mod urb;
+
 use std::fmt;
 use std::io::{self, Read, Write};
 #[cfg(unix)]

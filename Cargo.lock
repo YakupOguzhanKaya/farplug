@@ -1301,6 +1301,8 @@ dependencies = [
  "farplug",
  "farplug-usbip",
  "ksni",
+ "libc",
+ "toml",
  "tracing",
  "tracing-subscriber",
  "tray-icon",

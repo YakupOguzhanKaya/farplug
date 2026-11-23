@@ -4,6 +4,7 @@
 mod instance;
 mod launch;
 mod model;
+mod theme;
 #[cfg(any(target_os = "linux", windows))]
 mod tray;
 mod window;

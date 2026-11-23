@@ -9,9 +9,7 @@ use farplug::paths::Paths;
 
 use crate::instance::{self, Claim, Instance};
 use crate::model::{self, Action, Model};
-
-const GREEN: Color32 = Color32::from_rgb(0x2e, 0xa0, 0x43);
-const AMBER: Color32 = Color32::from_rgb(0xd2, 0x99, 0x22);
+use crate::theme::{self, Palette};
 
 pub fn run() -> eframe::Result {
     let instance = match instance::claim() {
@@ -51,6 +49,8 @@ pub fn run() -> eframe::Result {
                 renaming: None,
                 raise,
                 _instance: instance,
+                theme: theme::Follower::new(&cc.egui_ctx),
+                palette: Palette::default(),
             }))
         }),
     )
@@ -65,10 +65,16 @@ struct Window {
     /// Set when another launch asked for this window.
     raise: Arc<AtomicBool>,
     _instance: Option<Instance>,
+    theme: theme::Follower,
+    palette: Palette,
 }
 
 impl eframe::App for Window {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if let Some(p) = self.theme.poll(ctx) {
+            self.palette = p;
+        }
+        let palette = self.palette;
         if self.raise.swap(false, Ordering::Relaxed) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
@@ -79,16 +85,16 @@ impl eframe::App for Window {
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             ui.horizontal_wrapped(|ui| match (&m.agent, &m.last_error) {
                 (_, Some(e)) => {
-                    ui.colored_label(Color32::RED, e);
+                    ui.colored_label(ui.visuals().error_fg_color, e);
                 }
                 (Some(Err(e)), _) => {
-                    ui.colored_label(Color32::RED, e);
+                    ui.colored_label(ui.visuals().error_fg_color, e);
                 }
                 (None, _) => {
                     ui.label("Connecting to the agent…");
                 }
                 (Some(Ok(_)), _) => {
-                    dot(ui, GREEN, true);
+                    dot(ui, palette.green, true);
                     ui.label(
                         "Agent running. Attached devices stay attached when this window closes.",
                     );
@@ -187,7 +193,7 @@ impl Window {
         });
         match m.exported.get(server) {
             Some(Err(e)) => {
-                ui.colored_label(AMBER, format!("Cannot reach server: {e}"));
+                ui.colored_label(self.palette.amber, format!("Cannot reach server: {e}"));
             }
             None => {
                 ui.label("Loading…");
@@ -210,11 +216,11 @@ impl Window {
                 for row in rows {
                     let (filled, color, note) = match row.status {
                         Some(s) if s.state == DeviceState::Attached => {
-                            (true, GREEN, "attached".to_owned())
+                            (true, self.palette.green, "attached".to_owned())
                         }
                         Some(s) => (
                             true,
-                            AMBER,
+                            self.palette.amber,
                             s.error.clone().unwrap_or_else(|| "connecting".into()),
                         ),
                         None => (

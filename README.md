@@ -16,8 +16,9 @@ adds what the stock `usbip` tools leave to you:
 - **Clients reconnect on their own.** `farplug attach` keeps devices attached
   through server restarts, network drops and replugs.
 
-Restarting `farplugd` does not disconnect clients: the kernel owns attached
-connections, not the daemon.
+Stopping `farplugd` stops sharing: it gives every device back to the server,
+which disconnects its client. After a restart, clients re-attach on their own
+within a few seconds.
 
 [USB/IP]: https://docs.kernel.org/usb/usbip_protocol.html
 

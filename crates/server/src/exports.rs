@@ -224,6 +224,18 @@ impl Exports {
         }
     }
 
+    /// Stop sharing: every exported device goes back to this machine, which
+    /// disconnects its client.
+    pub fn release_all(&mut self) {
+        for (id, d) in std::mem::take(&mut self.bound) {
+            info!(device = %id, busid = %d.busid, "stopping; returning it to the host");
+            if let Err(e) = self.sysfs.release(&d.busid) {
+                warn!(busid = %d.busid, error = %e, "could not return device to the host");
+            }
+        }
+        self.auto.clear();
+    }
+
     pub fn config(&self) -> &Config {
         &self.cfg
     }

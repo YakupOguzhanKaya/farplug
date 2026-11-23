@@ -204,9 +204,7 @@ fn explain(e: io::Error) -> anyhow::Error {
         // ERROR_INSUFFICIENT_BUFFER / ERROR_INVALID_USER_BUFFER from the plugin
         // IOCTL mean the installed usbip-win2 ABI does not match this build.
         Some(code) if code == ERROR_INSUFFICIENT_BUFFER as i32 || code == 1784 => {
-            anyhow::anyhow!(
-                "usbip-win2 ABI mismatch (os error {code}); {INSTALL_HINT}"
-            )
+            anyhow::anyhow!("usbip-win2 ABI mismatch (os error {code}); {INSTALL_HINT}")
         }
         Some(code) if (code as u32) & 0x2000_0000 != 0 => anyhow::anyhow!(
             "usbip-win2 driver error {:#010x} (the server refused, or this usbip-win2 \

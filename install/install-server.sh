@@ -109,7 +109,7 @@ if [ -d /run/systemd/system ]; then
     sudo install -D -m0644 "$SRC/farplugd.service" /etc/systemd/system/farplugd.service
     sudo systemctl daemon-reload
     sudo systemctl enable farplugd
-    # Restarting keeps clients attached; it only picks up the new binary.
+    # Clients drop for a moment and re-attach on their own.
     sudo systemctl restart farplugd
     echo
     echo "farplugd is running. Next, pick the devices to export:"

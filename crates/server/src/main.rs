@@ -111,6 +111,15 @@ fn serve(config: &Path, sysfs: Sysfs, listen: Option<String>) -> Result<()> {
     exports.lock().unwrap().reconcile()?;
 
     let ex = exports.clone();
+    ctrlc::set_handler(move || {
+        // Holding the lock until exit keeps the poll loop from re-binding.
+        let mut ex = ex.lock().unwrap();
+        ex.release_all();
+        std::process::exit(0);
+    })
+    .context("installing the signal handler")?;
+
+    let ex = exports.clone();
     let config = config.to_owned();
     let mut seen = modified(&config);
     thread::spawn(move || loop {

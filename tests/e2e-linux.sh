@@ -179,7 +179,9 @@ $BIN/farplug --server 127.0.0.1:3242 list | grep -q 8153 && fail "export_all exp
 $BIN/farplugd --config $T/config.toml --sysfs-root $S check >"$T/check-all.txt" 2>&1
 grep -q '^2-3 .*skipped: network adapter' "$T/check-all.txt" && pass "check explains export_all skips" \
     || fail "check: $(cat $T/check-all.txt)"
-kill $SERVER
+kill $SERVER; wait $SERVER 2>/dev/null
+grep 'stopping; returning it to the host' "$T/server.log" | grep -q zigbee \
+    && pass "stopping the server releases its devices" || fail "no release on stop"
 
 for f in "$T"/*.log "$T"/*.txt; do echo "--- $(basename "$f")"; cat "$f"; done
 [ $FAILED = 0 ] && echo "ALL PASSED" || echo "SOME FAILED"

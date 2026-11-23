@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -6,12 +7,17 @@ use eframe::egui::{self, Color32, RichText};
 use farplug::ipc::DeviceState;
 use farplug::paths::Paths;
 
+use crate::instance::{self, Claim, Instance};
 use crate::model::{self, Action, Model};
 
 const GREEN: Color32 = Color32::from_rgb(0x2e, 0xa0, 0x43);
 const AMBER: Color32 = Color32::from_rgb(0xd2, 0x99, 0x22);
 
 pub fn run() -> eframe::Result {
+    let instance = match instance::claim() {
+        Claim::Elsewhere => return Ok(()),
+        Claim::Here(i) => i,
+    };
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("farplug")
@@ -25,11 +31,21 @@ pub fn run() -> eframe::Result {
         Box::new(|cc| {
             let ctx = cc.egui_ctx.clone();
             let (model, actions) = model::spawn(Paths::default(), move || ctx.request_repaint());
+            let raise = Arc::new(AtomicBool::new(false));
+            let (r, ctx) = (raise.clone(), cc.egui_ctx.clone());
+            if let Some(i) = &instance {
+                i.serve(move || {
+                    r.store(true, Ordering::Relaxed);
+                    ctx.request_repaint();
+                });
+            }
             Ok(Box::new(Window {
                 model,
                 actions,
                 new_server: String::new(),
                 renaming: None,
+                raise,
+                _instance: instance,
             }))
         }),
     )
@@ -41,10 +57,17 @@ struct Window {
     new_server: String,
     /// The server being renamed, and the name typed so far.
     renaming: Option<(String, String)>,
+    /// Set when another launch asked for this window.
+    raise: Arc<AtomicBool>,
+    _instance: Option<Instance>,
 }
 
 impl eframe::App for Window {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if self.raise.swap(false, Ordering::Relaxed) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        }
         let model = self.model.clone();
         let m = model.lock().unwrap();
 

@@ -1,6 +1,7 @@
 // No console window on Windows.
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
+mod instance;
 mod launch;
 mod model;
 #[cfg(any(target_os = "linux", windows))]

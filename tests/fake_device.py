@@ -7,7 +7,8 @@ Written independently of the Rust protocol crate, so it also cross-checks it.
 
 KIND is "plain" (a vendor-specific device with no endpoints, the default),
 "cp210x" or "cdcacm": a USB-serial adapter that echoes what it is sent and
-prints the line settings it is given, for the userspace serial client.
+prints the line settings it is given, for the userspace serial client, or
+"hid": a keyboard and mouse receiver that sends a few scripted reports.
 
 usage: fake_device.py PORT BUSID [KIND]
 """
@@ -34,7 +35,7 @@ def config(n_ifaces, body):
 
 
 VID, PID, DEV_CLASS = {"plain": (0x1209, 0x0001, 0xFF), "cp210x": (0x10C4, 0xEA60, 0),
-                       "cdcacm": (0x1209, 0x0002, 2)}[KIND]
+                       "cdcacm": (0x1209, 0x0002, 2), "hid": (0x046D, 0xC548, 0)}[KIND]
 DEVICE_DESC = struct.pack("<BBHBBBBHHHBBBB", 18, 1, 0x0200, DEV_CLASS, 0, 0, 64,
                           VID, PID, 0x0100, 1, 2, 3, 1)
 if KIND == "cp210x":
@@ -45,9 +46,18 @@ elif KIND == "cdcacm":
     CONFIG_DESC = config(2, interface(0, 1, 2, 2, 1) + bytes([5, 0x24, 0, 0x10, 1])
                          + endpoint(0x83, 3, 8)
                          + interface(1, 2, 0x0A) + endpoint(0x81, 2, 64) + endpoint(0x02, 2, 64))
+elif KIND == "hid":
+    IFACES = [(3, 1, 1), (3, 1, 2)]
+    CONFIG_DESC = config(2, interface(0, 1, 3, 1, 1) + endpoint(0x81, 3, 8)
+                         + interface(1, 1, 3, 1, 2) + endpoint(0x82, 3, 4))
 else:
     IFACES = [(0xFF, 0, 0)]
     CONFIG_DESC = config(1, interface(0, 0, 0xFF))
+
+# hid: reports per IN endpoint, sent one per request; afterwards requests
+# stay pending like those to an idle device.
+SCRIPT = {1: [bytes([0x02, 0, 0x04, 0, 0, 0, 0, 0]), bytes(8)],
+          2: [bytes([0x01, 5, 0xFE, 0xFF]), bytes(4)]}
 STRINGS = ["farplug", "Fake Device", "TEST0001"]
 
 
@@ -120,6 +130,11 @@ def serve_urbs(sock):
             if ep == 0:
                 status, data = control(setup, out)
                 reply(seq, status, data if direction == 1 else b"")
+            elif KIND == "hid" and direction == 1 and ep in SCRIPT:
+                if SCRIPT[ep]:
+                    reply(seq, 0, SCRIPT[ep].pop(0))
+                else:
+                    waiting.append((seq, length))
             elif KIND != "plain" and direction == 0:
                 echo += out
                 reply(seq, 0)

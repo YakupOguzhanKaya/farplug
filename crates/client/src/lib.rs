@@ -5,9 +5,13 @@ pub mod agent;
 #[cfg(target_os = "linux")]
 mod auth;
 pub mod backend;
+#[cfg(unix)]
+pub mod hid;
 pub mod ipc;
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "macos")]
+mod macinput;
 #[cfg(target_os = "linux")]
 mod mdns;
 pub mod paths;

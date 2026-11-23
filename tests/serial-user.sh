@@ -19,7 +19,7 @@ wait_for() { # seconds, command...
     return 1
 }
 export FARPLUG_AGENT_DIR=$T/agent FARPLUG_BACKEND=user
-$BIN/farplug agent >$T/agent.log 2>&1 &
+RUST_LOG=info $BIN/farplug agent >$T/agent.log 2>&1 &
 wait_for 5 test -S $T/agent/agent.sock
 
 # echo_through LINK: a line written to the port comes back.
@@ -70,6 +70,21 @@ for kind in cp210x cdcacm; do
         || fail "$kind: link left behind"
     kill $FAKE; wait $FAKE 2>/dev/null
 done
+
+echo "=== keyboard and mouse"
+python3 tests/fake_device.py 3310 hid hid >$T/hid.log 2>&1 &
+FAKE=$!
+sleep 0.5
+$BIN/farplug --server 127.0.0.1:3310 attach hid >/dev/null
+for want in 'Key { usage: 225, down: true }' 'Key { usage: 4, down: true }' \
+    'Key { usage: 4, down: false }' 'Button { button: 0, down: true }' \
+    'Motion { dx: 5, dy: -2 }' 'Scroll { lines: -1 }'; do
+    wait_for 10 grep -qF "$want" $T/agent.log && pass "input: $want" || fail "input: no $want"
+done
+$BIN/farplug status | grep -q '^127.0.0.1:3310 .*hid .*attached' && pass "input: status attached" \
+    || fail "input: $($BIN/farplug status)"
+$BIN/farplug detach hid >/dev/null
+kill $FAKE; wait $FAKE 2>/dev/null
 
 [ $FAILED = 0 ] && echo "ALL PASSED" || { echo "SOME FAILED"; tail -20 $T/agent.log; }
 exit $FAILED

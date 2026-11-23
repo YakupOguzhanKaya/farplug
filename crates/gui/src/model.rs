@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use farplug::ipc::{self, DeviceStatus, Request, Status};
 use farplug::paths::Paths;
@@ -14,6 +14,7 @@ use farplug_usbip::{DeviceInfo, ExportedDevice, ServerInfo};
 
 const AGENT_POLL: Duration = Duration::from_secs(2);
 const SERVER_POLL: Duration = Duration::from_secs(5);
+const CHECK: Duration = Duration::from_millis(200);
 
 #[derive(Default)]
 pub struct Model {
@@ -52,6 +53,12 @@ pub struct Row<'a> {
 }
 
 impl Row<'_> {
+    /// The label from the server's config, if it sets one.
+    #[cfg(any(target_os = "linux", windows))]
+    pub fn label(&self) -> Option<&str> {
+        self.info?.label.as_deref()
+    }
+
     /// The label, or the device's own name.
     pub fn description(&self) -> Option<&str> {
         let i = self.info?;
@@ -139,79 +146,94 @@ pub fn spawn(
     let (tx, rx) = mpsc::channel::<Action>();
 
     let (m, r) = (model.clone(), repaint.clone());
-    thread::spawn(move || loop {
-        crate::launch::ensure_agent(&paths);
-        let action = match rx.recv_timeout(AGENT_POLL) {
-            Ok(a) => Some(a),
-            Err(RecvTimeoutError::Timeout) => None,
-            Err(RecvTimeoutError::Disconnected) => return,
-        };
-        let req = match action {
-            None => Request::Status,
-            Some(Action::Attach { server, id }) => Request::Attach {
-                server,
-                devices: vec![id],
-            },
-            Some(Action::Detach { server, id }) => Request::Detach {
-                server: Some(server),
-                devices: vec![id],
-            },
-            Some(Action::AddServer(server)) => Request::AddServer { server },
-            Some(Action::RemoveServer(server)) => Request::RemoveServer { server },
-            Some(Action::SetAlias { server, alias }) => Request::SetAlias { server, alias },
-        };
-        let is_action = req != Request::Status;
-        let result = ipc::call(&paths, req);
-        {
-            let mut m = m.lock().unwrap();
-            match result {
-                Ok(s) => {
-                    m.agent = Some(Ok(s));
-                    if is_action {
-                        m.last_error = None;
+    thread::spawn(move || {
+        let mut action = None;
+        loop {
+            crate::launch::ensure_agent(&paths);
+            let req = match action.take() {
+                None => Request::Status,
+                Some(Action::Attach { server, id }) => Request::Attach {
+                    server,
+                    devices: vec![id],
+                },
+                Some(Action::Detach { server, id }) => Request::Detach {
+                    server: Some(server),
+                    devices: vec![id],
+                },
+                Some(Action::AddServer(server)) => Request::AddServer { server },
+                Some(Action::RemoveServer(server)) => Request::RemoveServer { server },
+                Some(Action::SetAlias { server, alias }) => Request::SetAlias { server, alias },
+            };
+            let is_action = req != Request::Status;
+            let result = ipc::call(&paths, req);
+            {
+                let mut m = m.lock().unwrap();
+                match result {
+                    Ok(s) => {
+                        m.agent = Some(Ok(s));
+                        if is_action {
+                            m.last_error = None;
+                        }
                     }
+                    Err(e) if is_action => m.last_error = Some(format!("{e:#}")),
+                    Err(e) => m.agent = Some(Err(format!("{e:#}"))),
                 }
-                Err(e) if is_action => m.last_error = Some(format!("{e:#}")),
-                Err(e) => m.agent = Some(Err(format!("{e:#}"))),
             }
+            r();
+            action = match rx.recv_timeout(AGENT_POLL) {
+                Ok(a) => Some(a),
+                Err(RecvTimeoutError::Timeout) => None,
+                Err(RecvTimeoutError::Disconnected) => return,
+            };
         }
-        r();
     });
 
     let (m, r) = (model.clone(), repaint);
-    thread::spawn(move || loop {
-        let servers = m.lock().unwrap().servers();
-        let fetches: Vec<_> = servers
-            .into_iter()
-            .map(|s| {
-                thread::spawn(move || {
-                    let server = Server::parse(&s);
-                    let devices = server
-                        .as_ref()
-                        .map_err(|e| format!("{e:#}"))
-                        .and_then(|sv| sv.devices().map_err(|e| format!("{e:#}")));
-                    let info = match (&server, &devices) {
-                        (Ok(sv), Ok(_)) => sv.info().ok(),
-                        _ => None,
-                    };
-                    (s, devices, info)
-                })
-            })
-            .collect();
-        let mut exported = BTreeMap::new();
-        let mut info = BTreeMap::new();
-        for (s, devices, i) in fetches.into_iter().filter_map(|h| h.join().ok()) {
-            if let Some(i) = i {
-                info.insert(s.clone(), i);
+    thread::spawn(move || {
+        let mut fetched: Option<(Vec<String>, Instant)> = None;
+        loop {
+            let servers = m.lock().unwrap().servers();
+            // Fetch right away when the agent reports a new set of servers, such
+            // as just after opening, instead of waiting out the poll interval.
+            let due = fetched
+                .as_ref()
+                .is_none_or(|(prev, at)| *prev != servers || at.elapsed() >= SERVER_POLL);
+            if !due {
+                thread::sleep(CHECK);
+                continue;
             }
-            exported.insert(s, devices);
+            fetched = Some((servers.clone(), Instant::now()));
+            let fetches: Vec<_> = servers
+                .into_iter()
+                .map(|s| {
+                    thread::spawn(move || {
+                        let server = Server::parse(&s);
+                        let devices = server
+                            .as_ref()
+                            .map_err(|e| format!("{e:#}"))
+                            .and_then(|sv| sv.devices().map_err(|e| format!("{e:#}")));
+                        let info = match (&server, &devices) {
+                            (Ok(sv), Ok(_)) => sv.info().ok(),
+                            _ => None,
+                        };
+                        (s, devices, info)
+                    })
+                })
+                .collect();
+            let mut exported = BTreeMap::new();
+            let mut info = BTreeMap::new();
+            for (s, devices, i) in fetches.into_iter().filter_map(|h| h.join().ok()) {
+                if let Some(i) = i {
+                    info.insert(s.clone(), i);
+                }
+                exported.insert(s, devices);
+            }
+            let mut model = m.lock().unwrap();
+            model.exported = exported;
+            model.info = info;
+            drop(model);
+            r();
         }
-        let mut model = m.lock().unwrap();
-        model.exported = exported;
-        model.info = info;
-        drop(model);
-        r();
-        thread::sleep(SERVER_POLL);
     });
 
     (model, tx)

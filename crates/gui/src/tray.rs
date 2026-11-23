@@ -43,7 +43,7 @@ pub fn run() -> Result<()> {
         .build()
         .map_err(|e| anyhow!("creating the tray icon: {e}"))?;
 
-    let mut shown_menu = String::new();
+    let mut shown_menu: Option<String> = None;
     loop {
         pump();
         while let Ok(ev) = MenuEvent::receiver().try_recv() {
@@ -54,10 +54,10 @@ pub fn run() -> Result<()> {
 
         let m = model.lock().unwrap();
         let (signature, h) = summarize(&m);
-        if signature != shown_menu {
+        if shown_menu.as_ref() != Some(&signature) {
             tray.set_menu(Some(Box::new(build_menu(&m)?)));
             let _ = tray.set_tooltip(Some(tooltip(&m)));
-            shown_menu = signature;
+            shown_menu = Some(signature);
         }
         if h != health {
             let _ = tray.set_icon(Some(icon(h)));
@@ -93,11 +93,12 @@ fn on_click(id: &str, m: &Model, actions: &Sender<Action>) -> bool {
 
 /// A string that changes whenever the menu would, plus the overall health.
 fn summarize(m: &Model) -> (String, Health) {
-    let mut sig = String::new();
+    let mut sig = match &m.agent {
+        None => "connecting".to_owned(),
+        Some(Ok(_)) => "ok".to_owned(),
+        Some(Err(e)) => format!("error {e}"),
+    };
     let (mut any, mut retrying) = (false, false);
-    if let Some(Err(e)) = &m.agent {
-        sig.push_str(e);
-    }
     for server in m.servers() {
         sig.push_str(&server);
         sig.push_str(m.alias(&server).unwrap_or_default());
@@ -157,10 +158,7 @@ fn build_menu(m: &Model) -> Result<Menu> {
         menu.append(&MenuItem::new(title, false, None))
             .map_err(err)?;
         for r in m.rows(&server) {
-            let name = match r.description() {
-                Some(d) => format!("{} \u{2014} {d}", r.id),
-                None => r.id.to_owned(),
-            };
+            let name = r.label().unwrap_or(r.id).to_owned();
             let busy = r.used_elsewhere();
             let label = match (r.status.map(|s| s.state), &busy) {
                 (Some(DeviceState::Attached), _) => name,

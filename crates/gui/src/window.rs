@@ -15,7 +15,7 @@ pub fn run() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("farplug")
-            .with_inner_size([560.0, 420.0])
+            .with_inner_size([780.0, 420.0])
             .with_min_inner_size([420.0, 240.0]),
         ..Default::default()
     };
@@ -91,7 +91,7 @@ impl eframe::App for Window {
             if servers.is_empty() && matches!(m.agent, Some(Ok(_))) {
                 ui.label("Add the server that exports your USB devices.");
             }
-            egui::ScrollArea::vertical().show(ui, |ui| {
+            egui::ScrollArea::both().show(ui, |ui| {
                 for server in &servers {
                     self.server_section(ui, &m, server);
                     ui.add_space(8.0);
@@ -176,7 +176,7 @@ impl Window {
         }
         egui::Grid::new(server)
             .striped(true)
-            .num_columns(5)
+            .num_columns(6)
             .spacing([12.0, 6.0])
             .show(ui, |ui| {
                 for row in rows {
@@ -196,12 +196,8 @@ impl Window {
                         ),
                     };
                     dot(ui, color, filled);
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(row.id).strong());
-                        if let Some(d) = row.description() {
-                            ui.weak(d);
-                        }
-                    });
+                    ui.label(RichText::new(row.id).strong());
+                    ui.weak(row.description().unwrap_or_default());
                     match row.exported {
                         Some(d) => ui.label(format!(
                             "{:04x}:{:04x}  {}",

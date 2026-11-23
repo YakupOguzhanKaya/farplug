@@ -14,8 +14,15 @@ fn sibling(name: &str) -> Option<std::path::PathBuf> {
 
 #[cfg(any(target_os = "linux", windows))]
 pub fn open_window() {
-    if let Ok(exe) = std::env::current_exe() {
-        let _ = std::process::Command::new(exe).spawn();
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    match std::process::Command::new(&exe).spawn() {
+        // Waiting reaps the window when it closes; the tray outlives many.
+        Ok(mut child) => {
+            std::thread::spawn(move || child.wait());
+        }
+        Err(e) => tracing::warn!(exe = %exe.display(), error = %e, "could not open the window"),
     }
 }
 

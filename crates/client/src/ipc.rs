@@ -82,8 +82,10 @@ pub struct DeviceStatus {
     pub id: String,
     pub state: DeviceState,
     pub port: Option<u32>,
-    /// Why the last attempt failed, while retrying.
-    pub error: Option<String>,
+    /// While retrying, why the last attempt failed; once attached, where the
+    /// device can be used, if that is not simply as a USB device.
+    #[serde(alias = "error")]
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

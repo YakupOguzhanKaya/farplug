@@ -12,8 +12,8 @@ use crate::{Attached, Backend, Server};
 const WATCH_INTERVAL: Duration = Duration::from_secs(1);
 const MAX_BACKOFF: Duration = Duration::from_secs(30);
 
-/// Progress reports: the state, the local port once attached, and the last
-/// error while retrying.
+/// Progress reports: the state, the local port once attached, and a note:
+/// the last error while retrying, or where an attached device can be used.
 pub type Report<'a> = &'a (dyn Fn(DeviceState, Option<u32>, Option<String>) + Sync);
 
 /// Attach `id` and re-attach it whenever it drops, until `stop` is set.
@@ -31,7 +31,7 @@ pub fn keep_attached(
         match backend.attach(server, id) {
             Ok(a) => {
                 info!(%server, device = %id, port = a.port, "attached");
-                report(DeviceState::Attached, Some(a.port), None);
+                report(DeviceState::Attached, Some(a.port), a.local.clone());
                 last_error.clear();
                 backoff = Duration::from_secs(1);
                 if watch(backend, &a, id, stop) {

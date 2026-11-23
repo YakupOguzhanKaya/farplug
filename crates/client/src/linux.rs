@@ -33,6 +33,7 @@ impl Backend for VhciHcd {
         Ok(Attached {
             port,
             devid: dev.devid(),
+            local: None,
         })
     }
 

@@ -19,6 +19,9 @@ pub struct Attached {
     /// Only meaningful on Linux, where it tells our device from a later one
     /// on the same port.
     pub devid: u32,
+    /// Where the device can be used when it does not appear as a USB device,
+    /// e.g. the serial port it became.
+    pub local: Option<String>,
 }
 
 /// `FARPLUG_BACKEND=user` selects the userspace backend that macOS uses, so

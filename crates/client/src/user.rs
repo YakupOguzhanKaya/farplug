@@ -60,7 +60,7 @@ impl Backend for UserSpace {
     fn attach(&self, server: &Server, id: &str) -> Result<Attached> {
         let dev = Device::open(server, id)?;
         let devid = dev.devid;
-        let session = if Chip::detect(&dev).is_some() {
+        let (session, local) = if Chip::detect(&dev).is_some() {
             let port = Port::start(dev, &self.dir.join(id))?;
             info!(
                 device = id,
@@ -69,11 +69,13 @@ impl Backend for UserSpace {
                 tty = %port.tty,
                 "serial port ready"
             );
-            Session::Serial(port)
+            let local = format!("serial port {}", port.link().display());
+            (Session::Serial(port), local)
         } else if !hid::boot_interfaces(&dev).is_empty() {
             let s = hid::Session::start(dev, local_input()?)?;
             info!(device = id, kinds = %s.kinds, "replaying input");
-            Session::Input(s)
+            let local = format!("{} input", s.kinds);
+            (Session::Input(s), local)
         } else {
             bail!(
                 "{:04x}:{:04x} ({}) is not a serial adapter, keyboard or mouse, \
@@ -85,7 +87,11 @@ impl Backend for UserSpace {
         };
         let n = self.next.fetch_add(1, Ordering::Relaxed);
         self.sessions.lock().unwrap().insert(n, session);
-        Ok(Attached { port: n, devid })
+        Ok(Attached {
+            port: n,
+            devid,
+            local: Some(local),
+        })
     }
 
     fn is_attached(&self, a: &Attached, _: &str) -> bool {

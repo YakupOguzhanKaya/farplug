@@ -53,8 +53,8 @@ for kind in cp210x cdcacm; do
     esac
     wait_for 5 grep -q "$want" $T/$kind.log && pass "$kind: baud rate reaches the chip" \
         || fail "$kind: $(tail -3 $T/$kind.log)"
-    $BIN/farplug status | grep -q "^127.0.0.1:$port .*$kind .*attached" \
-        && pass "$kind: status attached" || fail "$kind: $($BIN/farplug status)"
+    $BIN/farplug status | grep -q "^127.0.0.1:$port .*$kind .*attached .*serial port $LINK" \
+        && pass "$kind: status shows the serial port" || fail "$kind: $($BIN/farplug status)"
 
     kill $FAKE; wait $FAKE 2>/dev/null
     wait_for 10 sh -c "$BIN/farplug status | grep '$kind' | grep -qv ' attached '" \
@@ -81,7 +81,8 @@ for want in 'Key { usage: 225, down: true }' 'Key { usage: 4, down: true }' \
     'Motion { dx: 5, dy: -2 }' 'Scroll { lines: -1 }'; do
     wait_for 10 grep -qF "$want" $T/agent.log && pass "input: $want" || fail "input: no $want"
 done
-$BIN/farplug status | grep -q '^127.0.0.1:3310 .*hid .*attached' && pass "input: status attached" \
+$BIN/farplug status | grep -q '^127.0.0.1:3310 .*hid .*attached .*keyboard and mouse input' \
+    && pass "input: status shows keyboard and mouse input" \
     || fail "input: $($BIN/farplug status)"
 $BIN/farplug detach hid >/dev/null
 kill $FAKE; wait $FAKE 2>/dev/null

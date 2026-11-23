@@ -215,13 +215,15 @@ impl Window {
             .show(ui, |ui| {
                 for row in rows {
                     let (filled, color, note) = match row.status {
-                        Some(s) if s.state == DeviceState::Attached => {
-                            (true, self.palette.green, "attached".to_owned())
-                        }
+                        Some(s) if s.state == DeviceState::Attached => (
+                            true,
+                            self.palette.green,
+                            s.note.clone().unwrap_or_else(|| "attached".into()),
+                        ),
                         Some(s) => (
                             true,
                             self.palette.amber,
-                            s.error.clone().unwrap_or_else(|| "connecting".into()),
+                            s.note.clone().unwrap_or_else(|| "connecting".into()),
                         ),
                         None => (
                             false,

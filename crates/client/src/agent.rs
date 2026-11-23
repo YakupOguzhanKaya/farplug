@@ -268,15 +268,15 @@ impl Agent {
             id: id.clone(),
             state: DeviceState::Connecting,
             port: None,
-            error: None,
+            note: None,
         }));
         let (backend, stop2, status2) = (self.backend.clone(), stop.clone(), status.clone());
         let handle = thread::spawn(move || {
-            let report = |state, port, error| {
+            let report = |state, port, note| {
                 let mut s = status2.lock().unwrap();
                 s.state = state;
                 s.port = port;
-                s.error = error;
+                s.note = note;
             };
             keep_attached(&server, &id, &*backend, &stop2, &report);
         });
@@ -391,7 +391,11 @@ mod tests {
             let mut a = self.attached.lock().unwrap();
             let port = a.len() as u32 + 1;
             a.push(port);
-            Ok(Attached { port, devid: 0 })
+            Ok(Attached {
+                port,
+                devid: 0,
+                local: None,
+            })
         }
         fn is_attached(&self, a: &Attached, _: &str) -> bool {
             self.attached.lock().unwrap().contains(&a.port)
@@ -446,7 +450,7 @@ mod tests {
         );
         let bad = s.devices.iter().find(|d| d.id == "bad1").unwrap();
         assert_eq!(bad.state, DeviceState::Retrying);
-        assert!(bad.error.as_deref().unwrap().contains("no such device"));
+        assert!(bad.note.as_deref().unwrap().contains("no such device"));
 
         let saved = fs::read_to_string(&paths.state).unwrap();
         assert!(saved.contains("zigbee") && saved.contains("bad1"));

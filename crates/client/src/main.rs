@@ -117,7 +117,14 @@ fn main() -> Result<()> {
         }
         Cmd::Check => {
             backend::check()?;
-            println!("ok: this machine can attach USB/IP devices");
+            if cfg!(target_os = "macos") {
+                println!(
+                    "ok: on macOS, serial adapters attach as serial ports and keyboards and \
+                     mice as local input; other devices are not supported"
+                );
+            } else {
+                println!("ok: this machine can attach USB/IP devices");
+            }
             Ok(())
         }
         Cmd::Status => print_status(&ipc::call(&paths, Request::Status)?),
@@ -197,7 +204,7 @@ fn print_status(s: &Status) -> Result<()> {
             d.id.clone(),
             d.state.to_string(),
             d.port.map_or("-".into(), |p| p.to_string()),
-            d.error.clone().unwrap_or_default(),
+            d.note.clone().unwrap_or_default(),
         ]);
     }
     print_table(&rows);

@@ -158,7 +158,8 @@ if [ "$(uname -s)" = "Darwin" ]; then
     launchctl bootstrap "gui/$(id -u)" "$PLIST"
 
     echo "started the farplug agent (log: ~/Library/Logs/farplug-agent.log)"
-    echo "note: attaching devices does not work on macOS yet; listing and the GUI do"
+    echo "note: on macOS, serial adapters attach as serial ports (~/.farplug/serial/<id>)"
+    echo "      and keyboards and mice as local input; other devices are not supported"
     echo "try:   farplug --server <server-host> list"
     echo "       farplug-gui"
     exit 0

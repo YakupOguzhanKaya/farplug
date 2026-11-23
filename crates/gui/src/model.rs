@@ -280,14 +280,14 @@ mod tests {
                     id: "zigbee".into(),
                     state: DeviceState::Attached,
                     port: Some(1),
-                    error: None,
+                    note: None,
                 },
                 DeviceStatus {
                     server: "gw:3240".into(),
                     id: "gone".into(),
                     state: DeviceState::Retrying,
                     port: None,
-                    error: Some("no such device".into()),
+                    note: Some("no such device".into()),
                 },
             ],
         }));

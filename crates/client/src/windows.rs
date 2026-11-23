@@ -50,12 +50,17 @@ impl Backend for UsbipWin2 {
                 return Ok(Attached {
                     port: d.port,
                     devid: 0,
+                    local: None,
                 });
             }
         }
         let req = winabi::plugin_request(&server.host, server.port, id)?;
         let port = vhci.plugin(req)?;
-        Ok(Attached { port, devid: 0 })
+        Ok(Attached {
+            port,
+            devid: 0,
+            local: None,
+        })
     }
 
     fn is_attached(&self, a: &Attached, id: &str) -> bool {

@@ -121,8 +121,12 @@ Or use the GUI: `farplug-gui` opens a window listing your servers and their
 devices, with an Attach/Detach button for each. `farplug-gui --tray` puts an
 icon in the system tray with a checkbox per device; its color is green when
 everything is attached, amber while something is reconnecting, and grey when
-nothing is attached. The installer sets the tray icon to start at login on
-Linux and Windows desktops. The GUI is only a remote: closing it leaves devices attached.
+nothing is attached. Clicking the icon (double-clicking on Windows) opens the
+window, and only one window opens at a time. The installer sets the tray icon
+to start at login on Linux and Windows desktops. On Linux it needs a panel
+with StatusNotifierItem support: Waybar, KDE, XFCE, or GNOME with the
+AppIndicator extension. The GUI is only a remote: closing it leaves devices
+attached.
 
 On Windows there is no service. The agent runs in your session, and the GUI
 starts it if it is not running.
@@ -154,8 +158,9 @@ cargo test
 tests/run-e2e.sh           # end-to-end, in a privileged Docker container
 ```
 
-`tests/gui-screenshot.sh` and `tests/tray-screenshot.sh` render the window and
-the tray menu under Xvfb, inside the same container, for a visual check.
+`tests/gui-screenshot.sh` renders the window under Xvfb for a visual check, and
+`tests/tray-sni.sh` drives the Linux tray over D-Bus, both in the same
+container.
 
 The end-to-end test attaches an emulated device through the real `vhci_hcd`
 driver of Docker's Linux VM. It also checks the server against the stock

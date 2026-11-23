@@ -201,7 +201,7 @@ if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] || [ "${FARPLUG_GUI:-}" = 1 ]; then
             (setsid "$PREFIX/bin/farplug-gui" --tray >/dev/null 2>&1 &)
         fi
         echo "installed farplug-gui and started its tray icon; it also starts at every login"
-        echo "(the tray icon needs libayatana-appindicator3-1, or on GNOME the AppIndicator extension)"
+        echo "(the tray icon needs a panel with StatusNotifierItem support; on GNOME, the AppIndicator extension)"
     else
         echo "warning: could not download $GUI.tar.gz; skipping the GUI" >&2
     fi

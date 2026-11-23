@@ -3,6 +3,6 @@ Type=Application
 Name=farplug tray icon
 Comment=Quick access to farplug devices
 Exec=farplug-gui --tray
-Icon=drive-removable-media-usb
+Icon=farplug
 NoDisplay=true
 X-GNOME-Autostart-enabled=true

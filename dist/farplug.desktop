@@ -3,5 +3,5 @@ Type=Application
 Name=farplug
 Comment=Use USB devices from another machine
 Exec=farplug-gui
-Icon=drive-removable-media-usb
+Icon=farplug
 Categories=System;Utility;

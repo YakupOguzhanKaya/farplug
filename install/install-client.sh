@@ -53,7 +53,8 @@ uninstall_macos() {
 uninstall_linux() {
     pkill -f 'farplug-gui --tray' 2>/dev/null || true
     systemctl --user disable farplug-tray 2>/dev/null || true
-    sudo rm -f /etc/systemd/user/farplug-tray.service /usr/share/applications/farplug.desktop
+    sudo rm -f /etc/systemd/user/farplug-tray.service /usr/share/applications/farplug.desktop \
+        /usr/share/icons/hicolor/scalable/apps/farplug.svg
     systemctl --user daemon-reload 2>/dev/null || true
     rm -f "$HOME/.config/autostart/farplug-tray.desktop"
     # Stopping the agent detaches every device it holds.
@@ -187,6 +188,9 @@ if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] || [ "${FARPLUG_GUI:-}" = 1 ]; then
         tar xzf "$TMP/$GUI.tar.gz" -C "$TMP"
         sudo install -D -m0755 "$TMP/$GUI/farplug-gui" "$PREFIX/bin/farplug-gui"
         sudo install -D -m0644 "$TMP/$GUI/farplug.desktop" /usr/share/applications/farplug.desktop
+        if [ -f "$TMP/$GUI/farplug.svg" ]; then
+            sudo install -D -m0644 "$TMP/$GUI/farplug.svg" /usr/share/icons/hicolor/scalable/apps/farplug.svg
+        fi
         install -D -m0644 "$TMP/$GUI/farplug-tray.desktop" "$HOME/.config/autostart/farplug-tray.desktop"
         if [ -f "$TMP/$GUI/farplug-tray.service" ]; then
             sed "s|/usr/local/bin/farplug-gui|$PREFIX/bin/farplug-gui|" "$TMP/$GUI/farplug-tray.service" \

@@ -14,6 +14,9 @@ eframe = "0.29"
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
+[build-dependencies]
+winresource = { version = "0.1.31", default-features = false }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 ksni = { version = "0.3.6", default-features = false, features = ["blocking", "async-io"] }
 

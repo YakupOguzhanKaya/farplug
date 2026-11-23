@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- A USB plug pointing up, its cable trailing away, with signal arcs: a
+       device plugged in from far away. Single color, for tinting. -->
+  <g fill="#fff">
+    <path fill-rule="evenodd" d="M17 6h20a2 2 0 0 1 2 2v16H15V8a2 2 0 0 1 2-2zm4 5v5h4v-5zm8 0v5h4v-5z"/>
+    <rect x="12" y="22" width="30" height="18" rx="4"/>
+  </g>
+  <path d="M27 40v6c0 6 -5 10 -11 10h-8" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/>
+  <path d="M46 20a10 10 0 0 1 0 14M52 14a18 18 0 0 1 0 26" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+</svg>

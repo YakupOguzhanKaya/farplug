@@ -150,25 +150,23 @@ fn tooltip(m: &Model) -> String {
 }
 
 const ICON_SIZE: u32 = 32;
+/// The app's glyph as RGBA; only its alpha is used. See dist/icon/render.sh.
+const GLYPH: &[u8; (ICON_SIZE * ICON_SIZE * 4) as usize] =
+    include_bytes!("../../assets/glyph-32.rgba");
 
-/// RGBA pixels: a ring with a filled center, in the color of `h`.
+/// RGBA pixels: the glyph in the color of `h`, so the icon shows the state.
 fn icon_rgba(h: Health) -> Vec<u8> {
-    let color = match h {
+    let [r, g, b] = match h {
         Health::Idle => [0x8a, 0x8f, 0x98],
         Health::Ok => [0x2e, 0xa0, 0x43],
         Health::Retrying => [0xd2, 0x99, 0x22],
     };
-    let mut rgba = Vec::with_capacity((ICON_SIZE * ICON_SIZE * 4) as usize);
-    let c = (ICON_SIZE as f32 - 1.0) / 2.0;
-    for y in 0..ICON_SIZE {
-        for x in 0..ICON_SIZE {
-            let d = ((x as f32 - c).powi(2) + (y as f32 - c).powi(2)).sqrt();
-            let on = d <= 6.5 || (10.5..=15.0).contains(&d);
-            rgba.extend_from_slice(&color);
-            rgba.push(if on { 0xff } else { 0 });
-        }
-    }
-    rgba
+    GLYPH
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .flat_map(|px| [r, g, b, px[3]])
+        .collect()
 }
 
 /// Held for as long as this tray runs; None if another one already is.

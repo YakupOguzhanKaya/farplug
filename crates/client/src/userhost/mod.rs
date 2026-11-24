@@ -18,7 +18,7 @@ use farplug_usbip::urb::{self, Reply, Submit, DIR_IN, DIR_OUT};
 use farplug_usbip::{self as usbip, Request};
 
 use crate::server::Server;
-use descriptors::{Configuration, DeviceDescriptor};
+use descriptors::{Configuration, DeviceDescriptor, Endpoint};
 
 pub const CONTROL_TIMEOUT: Duration = Duration::from_secs(5);
 const ECONNRESET: i32 = 104;
@@ -31,6 +31,8 @@ pub struct Device {
     shared: Arc<Shared>,
     next_seq: AtomicU32,
     pub devid: u32,
+    /// High speed and faster count interrupt intervals in microframes.
+    high_speed: bool,
     pub descriptor: DeviceDescriptor,
     pub config: Configuration,
     pub product: Option<String>,
@@ -90,6 +92,10 @@ impl Device {
             shared,
             next_seq: AtomicU32::new(1),
             devid: udev.devid(),
+            high_speed: matches!(
+                udev.speed,
+                usbip::Speed::High | usbip::Speed::Super | usbip::Speed::SuperPlus
+            ),
             descriptor: DeviceDescriptor::default(),
             config: Configuration::default(),
             product: None,
@@ -134,11 +140,11 @@ impl Device {
     ) -> Result<Vec<u8>, TransferError> {
         let setup = urb::setup(request_type | 0x80, request, value, index, len);
         self.submit(
-            DIR_IN,
-            0,
-            Vec::new(),
-            len.into(),
-            setup,
+            Submit {
+                length: len.into(),
+                setup,
+                ..transfer(DIR_IN, 0)
+            },
             Some(CONTROL_TIMEOUT),
         )
     }
@@ -158,20 +164,52 @@ impl Device {
             index,
             data.len() as u16,
         );
-        self.submit(DIR_OUT, 0, data.to_vec(), 0, setup, Some(CONTROL_TIMEOUT))
-            .map(drop)
+        self.submit(
+            Submit {
+                data: data.to_vec(),
+                setup,
+                ..transfer(DIR_OUT, 0)
+            },
+            Some(CONTROL_TIMEOUT),
+        )
+        .map(drop)
     }
 
-    /// A bulk or interrupt IN transfer of up to `len` bytes; the endpoint's
-    /// type decides which. Without a timeout it waits until data arrives or
-    /// the device is closed.
+    /// A bulk IN transfer of up to `len` bytes. Without a timeout it waits
+    /// until data arrives or the device is closed.
     pub fn read(
         &self,
         ep: u8,
         len: usize,
         timeout: Option<Duration>,
     ) -> Result<Vec<u8>, TransferError> {
-        self.submit(DIR_IN, ep & 0x0f, Vec::new(), len, [0; 8], timeout)
+        self.submit(
+            Submit {
+                length: len,
+                ..transfer(DIR_IN, ep)
+            },
+            timeout,
+        )
+    }
+
+    /// One report from an interrupt IN endpoint, waiting until there is one.
+    pub fn read_interrupt(&self, ep: &Endpoint) -> Result<Vec<u8>, TransferError> {
+        // Linux refuses interrupt transfers without a polling interval; send
+        // it as Linux's own USB/IP client does: frames, or microframes from
+        // high speed up.
+        let interval = if self.high_speed {
+            1u32 << (ep.interval.clamp(1, 16) - 1)
+        } else {
+            u32::from(ep.interval.max(1))
+        };
+        self.submit(
+            Submit {
+                length: usize::from(ep.max_packet),
+                interval,
+                ..transfer(DIR_IN, ep.address)
+            },
+            None,
+        )
     }
 
     pub fn write(
@@ -180,8 +218,14 @@ impl Device {
         data: &[u8],
         timeout: Option<Duration>,
     ) -> Result<(), TransferError> {
-        self.submit(DIR_OUT, ep & 0x0f, data.to_vec(), 0, [0; 8], timeout)
-            .map(drop)
+        self.submit(
+            Submit {
+                data: data.to_vec(),
+                ..transfer(DIR_OUT, ep)
+            },
+            timeout,
+        )
+        .map(drop)
     }
 
     /// False once the server or network went away.
@@ -195,13 +239,11 @@ impl Device {
         let _ = self.stream.shutdown(Shutdown::Both);
     }
 
+    /// Sends `submit` (its seqnum and devid filled in here) and waits for
+    /// the reply.
     fn submit(
         &self,
-        direction: u32,
-        ep: u8,
-        data: Vec<u8>,
-        length: usize,
-        setup: [u8; 8],
+        mut submit: Submit,
         timeout: Option<Duration>,
     ) -> Result<Vec<u8>, TransferError> {
         if !self.is_alive() {
@@ -213,17 +255,9 @@ impl Device {
             .pending
             .lock()
             .unwrap()
-            .insert(seqnum, (direction == DIR_IN, Some(tx)));
-        let submit = Submit {
-            seqnum,
-            devid: self.devid,
-            direction,
-            ep: ep.into(),
-            data,
-            length,
-            interval: 0,
-            setup,
-        };
+            .insert(seqnum, (submit.direction == DIR_IN, Some(tx)));
+        submit.seqnum = seqnum;
+        submit.devid = self.devid;
         if let Err(e) = submit.write_to(&mut *self.writer.lock().unwrap()) {
             self.shared.pending.lock().unwrap().remove(&seqnum);
             return Err(e.into());
@@ -256,6 +290,21 @@ impl Device {
             self.devid,
             victim,
         );
+    }
+}
+
+/// A transfer on endpoint `ep` (its number; the direction bit is dropped)
+/// with nothing to send, nothing to receive, and no setup packet yet.
+fn transfer(direction: u32, ep: u8) -> Submit {
+    Submit {
+        seqnum: 0,
+        devid: 0,
+        direction,
+        ep: (ep & 0x0f).into(),
+        data: Vec::new(),
+        length: 0,
+        interval: 0,
+        setup: [0; 8],
     }
 }
 

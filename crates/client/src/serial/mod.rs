@@ -17,7 +17,7 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 use tracing::{debug, warn};
 
-use crate::userhost::Device;
+use crate::userhost::{Device, TransferError};
 use chips::{Chip, Line, Parity};
 
 const WATCH: Duration = Duration::from_millis(200);
@@ -74,8 +74,9 @@ impl Port {
                             break;
                         }
                     }
+                    Err(TransferError::Closed) => break,
                     Err(e) => {
-                        debug!(error = %e, "serial read ended");
+                        warn!(error = %e, "reading from the serial adapter failed");
                         break;
                     }
                 }

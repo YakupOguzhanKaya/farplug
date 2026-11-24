@@ -8,10 +8,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use anyhow::{bail, Result};
-use tracing::debug;
+use tracing::warn;
 
 use crate::userhost::descriptors::{EndpointKind, Interface};
-use crate::userhost::Device;
+use crate::userhost::{Device, TransferError};
 
 const HID_CLASS: u8 = 3;
 const BOOT_SUBCLASS: u8 = 1;
@@ -184,10 +184,11 @@ impl Session {
                 let (mut kb, mut mouse) = (Keyboard::default(), Mouse::default());
                 let mut events = Vec::new();
                 while !s.load(Ordering::Relaxed) {
-                    let report = match d.read(ep.address, ep.max_packet.into(), None) {
+                    let report = match d.read_interrupt(&ep) {
                         Ok(r) => r,
+                        Err(TransferError::Closed) => break,
                         Err(e) => {
-                            debug!(error = %e, "input read ended");
+                            warn!(error = %e, "reading the keyboard or mouse failed");
                             break;
                         }
                     };

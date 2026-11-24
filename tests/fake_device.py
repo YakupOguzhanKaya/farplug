@@ -130,6 +130,8 @@ def serve_urbs(sock):
             if ep == 0:
                 status, data = control(setup, out)
                 reply(seq, status, data if direction == 1 else b"")
+            elif KIND == "hid" and direction == 1 and ep in SCRIPT and _intv == 0:
+                reply(seq, -22)  # -EINVAL: Linux refuses interrupt URBs without an interval
             elif KIND == "hid" and direction == 1 and ep in SCRIPT:
                 if SCRIPT[ep]:
                     reply(seq, 0, SCRIPT[ep].pop(0))

@@ -54,6 +54,8 @@ pub struct Endpoint {
     pub address: u8,
     pub kind: EndpointKind,
     pub max_packet: u16,
+    /// bInterval: how often an interrupt endpoint is polled.
+    pub interval: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,6 +130,7 @@ impl Configuration {
                                 _ => EndpointKind::Interrupt,
                             },
                             max_packet: u16::from_le_bytes([d[4], d[5]]) & 0x07ff,
+                            interval: d[6],
                         });
                     }
                 }

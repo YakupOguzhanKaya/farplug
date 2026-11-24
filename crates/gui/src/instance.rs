@@ -1,6 +1,6 @@
-//! One window at a time: a second launch asks the open window to come
-//! forward, then exits. The window listens on a loopback port it records in a
-//! per-user file.
+//! One window (or tray icon) at a time: a second launch asks the running one
+//! to come forward, then exits. The running one listens on a loopback port it
+//! records in a per-user file named after `what`.
 
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
@@ -26,8 +26,8 @@ pub enum Claim {
     Here(Option<Instance>),
 }
 
-pub fn claim() -> Claim {
-    let file = runtime_dir().join("window.port");
+pub fn claim(what: &str) -> Claim {
+    let file = runtime_dir().join(format!("{what}.port"));
     if let Some(port) = fs::read_to_string(&file)
         .ok()
         .and_then(|p| p.trim().parse().ok())
@@ -101,7 +101,13 @@ fn runtime_dir() -> PathBuf {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+/// macOS: the per-user temporary directory ($TMPDIR).
+#[cfg(target_os = "macos")]
+fn runtime_dir() -> PathBuf {
+    std::env::temp_dir().join("farplug")
+}
+
+#[cfg(windows)]
 fn runtime_dir() -> PathBuf {
     farplug::paths::Paths::default()
         .endpoint

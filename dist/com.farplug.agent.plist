@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Installed to ~/Library/LaunchAgents by install-client.sh, which fills in @HOME@. -->
+<!-- The agent, as a system LaunchDaemon in /Library/LaunchDaemons: as root it
+     is exempt from macOS's per-program Local Network permission, which a
+     per-user agent would need and keep losing on every update. -->
 <plist version="1.0">
 <dict>
   <key>Label</key><string>com.farplug.agent</string>
@@ -11,6 +13,8 @@
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardErrorPath</key><string>@HOME@/Library/Logs/farplug-agent.log</string>
+  <key>EnvironmentVariables</key>
+  <dict><key>RUST_LOG</key><string>info</string></dict>
+  <key>StandardErrorPath</key><string>/Library/Logs/farplug-agent.log</string>
 </dict>
 </plist>

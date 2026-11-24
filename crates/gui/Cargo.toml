@@ -22,6 +22,11 @@ winresource = { version = "0.1.31", default-features = false }
 libc = "0.2"
 ksni = { version = "0.3.6", default-features = false, features = ["blocking", "async-io"] }
 
-[target.'cfg(windows)'.dependencies]
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
 tray-icon = { version = "0.19", default-features = false }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+winit = { version = "0.30", default-features = false }
+
+[target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation"] }

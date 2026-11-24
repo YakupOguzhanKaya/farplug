@@ -5,7 +5,7 @@ mod instance;
 mod launch;
 mod model;
 mod theme;
-#[cfg(any(target_os = "linux", windows))]
+#[cfg(any(target_os = "linux", windows, target_os = "macos"))]
 mod tray;
 mod window;
 
@@ -21,12 +21,12 @@ fn main() -> anyhow::Result<()> {
     window::run().map_err(|e| anyhow::anyhow!("{e}"))
 }
 
-#[cfg(any(target_os = "linux", windows))]
+#[cfg(any(target_os = "linux", windows, target_os = "macos"))]
 fn tray() -> anyhow::Result<()> {
     tray::run()
 }
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
 fn tray() -> anyhow::Result<()> {
     anyhow::bail!("the tray icon is not supported on this OS yet")
 }

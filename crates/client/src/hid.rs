@@ -1,6 +1,7 @@
 //! Keyboards and mice in HID boot protocol: their reports turned into key,
-//! button, motion and scroll events for an [`Input`] that replays them on the
-//! local machine (macOS: synthetic CoreGraphics events).
+//! button, motion and scroll events for an [`Input`]. The agent publishes
+//! them on [`crate::inputbus`]; on macOS the menu-bar app replays them as
+//! synthetic CoreGraphics events, since the root agent cannot.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -17,7 +18,8 @@ const BOOT_SUBCLASS: u8 = 1;
 const KEYBOARD: u8 = 1;
 const MOUSE: u8 = 2;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Event {
     /// A key by its HID usage on the keyboard page; modifiers are 0xE0..0xE7.
     Key {
@@ -219,15 +221,6 @@ impl Session {
 impl Drop for Session {
     fn drop(&mut self) {
         self.stop();
-    }
-}
-
-/// Where the OS cannot take injected input: log what would have been sent.
-pub struct LogInput;
-
-impl Input for LogInput {
-    fn send(&mut self, e: Event) {
-        tracing::info!(?e, "input");
     }
 }
 

@@ -11,7 +11,7 @@ use anyhow::{bail, Result};
 use tracing::info;
 
 use crate::backend::{Attached, Backend};
-use crate::hid::{self, Input};
+use crate::hid;
 use crate::serial::{chips::Chip, Port};
 use crate::userhost::Device;
 use crate::Server;
@@ -46,16 +46,6 @@ impl UserSpace {
     }
 }
 
-#[cfg(target_os = "macos")]
-fn local_input() -> Result<Box<dyn Input>> {
-    Ok(Box::new(crate::macinput::MacInput::new()?))
-}
-
-#[cfg(not(target_os = "macos"))]
-fn local_input() -> Result<Box<dyn Input>> {
-    Ok(Box::new(hid::LogInput))
-}
-
 impl Backend for UserSpace {
     fn attach(&self, server: &Server, id: &str) -> Result<Attached> {
         let dev = Device::open(server, id)?;
@@ -72,9 +62,9 @@ impl Backend for UserSpace {
             let local = format!("serial port {}", port.link().display());
             (Session::Serial(port), local)
         } else if !hid::boot_interfaces(&dev).is_empty() {
-            let s = hid::Session::start(dev, local_input()?)?;
-            info!(device = id, kinds = %s.kinds, "replaying input");
-            let local = format!("{} input", s.kinds);
+            let s = hid::Session::start(dev, Box::new(crate::inputbus::Broadcast))?;
+            info!(device = id, kinds = %s.kinds, "forwarding input");
+            let local = format!("{} input, typed by the farplug menu-bar app", s.kinds);
             (Session::Input(s), local)
         } else {
             bail!(

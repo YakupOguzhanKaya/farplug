@@ -70,7 +70,7 @@ pub fn run(paths: Paths) -> Result<()> {
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 fn listen(agent: Arc<Agent>, paths: &Paths) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
     use std::os::unix::net::{UnixListener, UnixStream};
@@ -107,7 +107,7 @@ fn listen(agent: Arc<Agent>, paths: &Paths) -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
 fn listen(agent: Arc<Agent>, paths: &Paths) -> Result<()> {
     use std::net::{Ipv4Addr, TcpListener};
 
@@ -131,19 +131,42 @@ fn listen(agent: Arc<Agent>, paths: &Paths) -> Result<()> {
 }
 
 fn serve(agent: &Agent, sock: &mut (impl Read + Write), token: &str, allowed: Result<(), String>) {
-    let result = ipc::read_request(sock, token).map(|req| {
-        debug!(?req, "request");
-        match allowed {
-            Ok(()) => agent.handle(req),
-            Err(e) => Err(anyhow!(e)),
+    let req = match ipc::read_request(sock, token) {
+        Ok(r) => r,
+        Err(e) => {
+            debug!(error = %e, "bad request");
+            return;
         }
-    });
-    match result {
-        Ok(reply) => {
-            let _ = ipc::write_reply(sock, reply);
-        }
-        Err(e) => debug!(error = %e, "bad request"),
+    };
+    debug!(?req, "request");
+    if let Err(e) = allowed {
+        let _ = ipc::write_reply(sock, Err(anyhow!(e)));
+        return;
     }
+    match req {
+        Request::Exports { server } => {
+            let _ = ipc::write_exports(sock, exports(&server));
+        }
+        #[cfg(unix)]
+        Request::InputEvents => {
+            for e in crate::inputbus::subscribe() {
+                if ipc::write_event(sock, &e).is_err() {
+                    break;
+                }
+            }
+        }
+        req => {
+            let _ = ipc::write_reply(sock, agent.handle(req));
+        }
+    }
+}
+
+fn exports(server: &str) -> Result<ipc::Exports> {
+    let server = Server::parse(server)?;
+    Ok(ipc::Exports {
+        devices: server.devices()?,
+        info: server.info().ok(),
+    })
 }
 
 impl Agent {
@@ -179,6 +202,10 @@ impl Agent {
         let mut inner = self.inner.lock().unwrap();
         match req {
             Request::Status => {}
+            // Answered by serve() without the state lock.
+            Request::Exports { .. } | Request::InputEvents => {
+                bail!("not supported here")
+            }
             Request::AddServer { server } => {
                 let s = Server::parse(&server)?.to_string();
                 if !inner.servers.contains(&s) {
@@ -342,7 +369,7 @@ fn status(inner: &Inner) -> Status {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
 fn new_token() -> Result<String> {
     let mut b = [0u8; 16];
     getrandom::getrandom(&mut b).map_err(|e| anyhow!("no randomness: {e}"))?;

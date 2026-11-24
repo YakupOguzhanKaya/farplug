@@ -12,7 +12,7 @@ fn sibling(name: &str) -> Option<std::path::PathBuf> {
     )
 }
 
-#[cfg(any(target_os = "linux", windows))]
+#[cfg(any(target_os = "linux", windows, target_os = "macos"))]
 pub fn open_window() {
     let Ok(exe) = std::env::current_exe() else {
         return;

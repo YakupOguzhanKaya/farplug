@@ -120,7 +120,7 @@ fn main() -> Result<()> {
             if cfg!(target_os = "macos") {
                 println!(
                     "ok: on macOS, serial adapters attach as serial ports and keyboards and \
-                     mice as local input; other devices are not supported"
+                     mice are typed by the farplug menu-bar app; other devices are not supported"
                 );
             } else {
                 println!("ok: this machine can attach USB/IP devices");

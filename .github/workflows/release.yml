@@ -100,16 +100,26 @@ jobs:
       - run: |
           cargo build --release --target aarch64-apple-darwin -p farplug -p farplug-gui
           cargo build --release --target x86_64-apple-darwin -p farplug -p farplug-gui
-      - name: package universal binaries
+      - name: package universal binaries and farplug.app
         run: |
           d=farplug-universal-apple-darwin
-          mkdir -p "$d"
-          for b in farplug farplug-gui; do
-            lipo -create -output "$d/$b" \
-              target/aarch64-apple-darwin/release/$b \
-              target/x86_64-apple-darwin/release/$b
-          done
-          cp install/install-client.sh dist/com.farplug.agent.plist README.md "$d/"
+          app="$d/farplug.app/Contents"
+          mkdir -p "$app/MacOS" "$app/Resources"
+          lipo -create -output "$d/farplug" \
+            target/aarch64-apple-darwin/release/farplug \
+            target/x86_64-apple-darwin/release/farplug
+          lipo -create -output "$app/MacOS/farplug-gui" \
+            target/aarch64-apple-darwin/release/farplug-gui \
+            target/x86_64-apple-darwin/release/farplug-gui
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          sed "s/@VERSION@/$version/g" dist/macos/Info.plist > "$app/Info.plist"
+          cp dist/icon/farplug.icns "$app/Resources/"
+          # The linker's automatic signature has no designated requirement, so
+          # macOS cannot remember permissions such as Accessibility for it.
+          codesign --force --sign - --identifier io.github.yakupoguzhankaya.farplug.cli "$d/farplug"
+          codesign --force --sign - "$d/farplug.app"
+          codesign --verify --deep "$d/farplug.app"
+          cp install/install-client.sh dist/com.farplug.agent.plist dist/com.farplug.tray.plist README.md "$d/"
           tar czf "$d.tar.gz" "$d"
           shasum -a 256 "$d.tar.gz" > "$d.tar.gz.sha256"
       - uses: actions/upload-artifact@v4

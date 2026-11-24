@@ -108,7 +108,7 @@ impl fmt::Display for Status {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Speed {
     Unknown,
     Low,
@@ -163,7 +163,7 @@ impl fmt::Display for Speed {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct UsbDevice {
     pub path: String,
     pub busid: String,
@@ -236,7 +236,7 @@ impl UsbDevice {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct UsbInterface {
     pub class: u8,
     pub subclass: u8,
@@ -244,7 +244,7 @@ pub struct UsbInterface {
 }
 
 /// One entry of a device-list reply.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ExportedDevice {
     pub device: UsbDevice,
     pub interfaces: Vec<UsbInterface>,

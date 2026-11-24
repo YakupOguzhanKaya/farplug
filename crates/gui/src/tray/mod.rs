@@ -3,8 +3,13 @@
 //! amber while something is retrying, grey when nothing is attached.
 //!
 //! Linux speaks StatusNotifierItem over D-Bus directly (`sni`), which unlike
-//! libappindicator reports left clicks; Windows uses `tray-icon` (`win`).
+//! libappindicator reports left clicks; Windows (`win`) and the macOS menu
+//! bar (`mac`) use `tray-icon`.
 
+#[cfg(target_os = "macos")]
+mod mac;
+#[cfg(any(windows, target_os = "macos"))]
+mod menu;
 #[cfg(target_os = "linux")]
 mod sni;
 #[cfg(windows)]
@@ -28,11 +33,18 @@ pub fn run() -> Result<()> {
     let Some(_instance) = single_instance() else {
         return Ok(());
     };
+    #[cfg(not(target_os = "linux"))]
+    let _instance = match crate::instance::claim("tray") {
+        crate::instance::Claim::Elsewhere => return Ok(()),
+        crate::instance::Claim::Here(i) => i,
+    };
     let (model, actions) = model::spawn(Paths::default(), || {});
     #[cfg(target_os = "linux")]
     return sni::run(model, actions);
     #[cfg(windows)]
     return win::run(model, actions);
+    #[cfg(target_os = "macos")]
+    return mac::run(model, actions);
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

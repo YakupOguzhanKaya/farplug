@@ -12,7 +12,7 @@ use crate::model::{self, Action, Model};
 use crate::theme::{self, Palette};
 
 pub fn run() -> eframe::Result {
-    let instance = match instance::claim() {
+    let instance = match instance::claim("window") {
         Claim::Elsewhere => return Ok(()),
         Claim::Here(i) => i,
     };

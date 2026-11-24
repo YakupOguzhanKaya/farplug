@@ -40,13 +40,24 @@ as_root() {
 }
 
 uninstall_macos() {
-    # Unloading the agent stops it, which detaches its devices.
+    launchctl bootout "gui/$(id -u)/com.farplug.tray" 2>/dev/null || true
+    rm -f "$HOME/Library/LaunchAgents/com.farplug.tray.plist"
+    # Stopping the agent detaches its devices. Versions before 0.3.6 ran it per user.
+    sudo launchctl bootout system/com.farplug.agent 2>/dev/null || true
+    sudo rm -f /Library/LaunchDaemons/com.farplug.agent.plist
     launchctl bootout "gui/$(id -u)/com.farplug.agent" 2>/dev/null || true
     rm -f "$HOME/Library/LaunchAgents/com.farplug.agent.plist"
     pkill -x farplug-gui 2>/dev/null || true
+    rm -rf "$HOME/Applications/farplug.app"
+    if [ -d /Applications/farplug.app ]; then
+        rm -rf /Applications/farplug.app 2>/dev/null || sudo rm -rf /Applications/farplug.app
+    fi
     as_root rm -f "$PREFIX/bin/farplug" "$PREFIX/bin/farplug-gui"
     if [ "$PURGE" = 1 ]; then
-        rm -rf "$HOME/Library/Application Support/farplug" "$HOME/Library/Logs/farplug-agent.log"
+        sudo rm -rf "/Library/Application Support/farplug" /Library/Logs/farplug-agent.log
+        rm -rf "$HOME/Library/Application Support/farplug" "$HOME/Library/Logs/farplug-agent.log" \
+            "$HOME/Library/Logs/farplug-tray.log"
+        if dscl . -read /Groups/farplug >/dev/null 2>&1; then sudo dseditgroup -o delete farplug; fi
     fi
 }
 
@@ -132,7 +143,8 @@ SRC="$TMP/farplug-$TARGET"
 if [ -w "$PREFIX/bin" ]; then
     install -d "$PREFIX/bin" && install -m0755 "$SRC/farplug" "$PREFIX/bin/farplug"
 else
-    sudo install -D -m0755 "$SRC/farplug" "$PREFIX/bin/farplug"
+    # mkdir, not install -D: macOS's install has no -D.
+    sudo mkdir -p "$PREFIX/bin" && sudo install -m0755 "$SRC/farplug" "$PREFIX/bin/farplug"
 fi
 
 # Gatekeeper quarantines anything fetched by curl; the binary is unsigned.
@@ -142,26 +154,50 @@ echo
 echo "installed $PREFIX/bin/farplug"
 
 if [ "$(uname -s)" = "Darwin" ]; then
-    if [ -w "$PREFIX/bin" ]; then
-        install -m0755 "$SRC/farplug-gui" "$PREFIX/bin/farplug-gui"
-    else
-        sudo install -m0755 "$SRC/farplug-gui" "$PREFIX/bin/farplug-gui"
+    ME=$(id -un)
+    # The agent runs as root; members of the farplug group may control it.
+    if ! dscl . -read /Groups/farplug >/dev/null 2>&1; then
+        sudo dseditgroup -o create farplug
     fi
-    xattr -d com.apple.quarantine "$PREFIX/bin/farplug-gui" 2>/dev/null || true
+    sudo dseditgroup -o edit -a "$ME" -t user farplug
 
-    # The agent runs per user as a LaunchAgent, started now and at every login.
-    PLIST="$HOME/Library/LaunchAgents/com.farplug.agent.plist"
-    mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
-    sed -e "s|@HOME@|$HOME|g" -e "s|/usr/local/bin/farplug|$PREFIX/bin/farplug|" \
-        "$SRC/com.farplug.agent.plist" > "$PLIST"
+    # Versions before 0.3.6 ran the agent per user: stop it, keep its devices.
     launchctl bootout "gui/$(id -u)/com.farplug.agent" 2>/dev/null || true
-    launchctl bootstrap "gui/$(id -u)" "$PLIST"
+    rm -f "$HOME/Library/LaunchAgents/com.farplug.agent.plist"
+    OLD="$HOME/Library/Application Support/farplug/state.json"
+    NEW="/Library/Application Support/farplug/state.json"
+    if [ -f "$OLD" ] && ! sudo test -f "$NEW"; then
+        sudo mkdir -p "$(dirname "$NEW")" && sudo cp "$OLD" "$NEW"
+    fi
 
-    echo "started the farplug agent (log: ~/Library/Logs/farplug-agent.log)"
-    echo "note: on macOS, serial adapters attach as serial ports (~/.farplug/serial/<id>)"
-    echo "      and keyboards and mice as local input; other devices are not supported"
+    DAEMON=/Library/LaunchDaemons/com.farplug.agent.plist
+    sed "s|/usr/local/bin/farplug|$PREFIX/bin/farplug|" "$SRC/com.farplug.agent.plist" \
+        | sudo tee "$DAEMON" >/dev/null
+    sudo chown root:wheel "$DAEMON" && sudo chmod 644 "$DAEMON"
+    sudo launchctl bootout system/com.farplug.agent 2>/dev/null || true
+    sudo launchctl bootstrap system "$DAEMON"
+
+    APPS=/Applications
+    [ -w "$APPS" ] || APPS="$HOME/Applications"
+    mkdir -p "$APPS"
+    pkill -x farplug-gui 2>/dev/null || true
+    rm -rf "$APPS/farplug.app"
+    cp -R "$SRC/farplug.app" "$APPS/"
+    xattr -dr com.apple.quarantine "$APPS/farplug.app" 2>/dev/null || true
+    as_root ln -sf "$APPS/farplug.app/Contents/MacOS/farplug-gui" "$PREFIX/bin/farplug-gui"
+
+    # The menu-bar icon, which also types for remote keyboards and mice.
+    TRAY="$HOME/Library/LaunchAgents/com.farplug.tray.plist"
+    mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
+    sed -e "s|@APP@|$APPS/farplug.app|g" -e "s|@HOME@|$HOME|g" "$SRC/com.farplug.tray.plist" > "$TRAY"
+    launchctl bootout "gui/$(id -u)/com.farplug.tray" 2>/dev/null || true
+    launchctl bootstrap "gui/$(id -u)" "$TRAY"
+
+    echo "installed $APPS/farplug.app; the farplug agent and menu-bar icon are running"
+    echo "serial adapters attach as serial ports linked at /var/run/farplug/serial/<id>;"
+    echo "keyboards and mice are typed by the menu-bar app, which asks once for the"
+    echo "Accessibility permission. Other device types are not supported on macOS."
     echo "try:   farplug --server <server-host> list"
-    echo "       farplug-gui"
     exit 0
 fi
 

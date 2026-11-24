@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The menu-bar icon, started at login. Installed to ~/Library/LaunchAgents by
+     install-client.sh, which fills in @APP@ and @HOME@. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.farplug.tray</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>@APP@/Contents/MacOS/farplug-gui</string>
+    <string>--tray</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <!-- Restart after a crash, but not after Quit from its menu. -->
+  <key>KeepAlive</key>
+  <dict><key>SuccessfulExit</key><false/></dict>
+  <key>StandardErrorPath</key><string>@HOME@/Library/Logs/farplug-tray.log</string>
+</dict>
+</plist>

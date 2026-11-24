@@ -37,14 +37,19 @@ macOS has no USB/IP driver, and a virtual USB controller needs an
 entitlement only Apple grants, so the macOS client drives devices itself:
 
 - **Serial adapters** (CDC-ACM, CP210x, CH34x, FTDI; most Zigbee and Z-Wave
-  sticks) become a serial port linked at `~/.farplug/serial/<id>`. Programs
-  set the baud rate as usual. DTR and RTS stay on, so boards that reset on a
-  DTR toggle, like some Arduinos, do not reset.
-- **Keyboards and mice** type and move the pointer on the Mac. This needs the
-  Accessibility permission (System Settings > Privacy & Security >
-  Accessibility); attaching asks for it. Apps see input events, not a device,
-  so vendor tools and raw-input games do not see it.
+  sticks) become a serial port linked at `/var/run/farplug/serial/<id>`.
+  Programs set the baud rate as usual. DTR and RTS stay on, so boards that
+  reset on a DTR toggle, like some Arduinos, do not reset.
+- **Keyboards and mice** type and move the pointer on the Mac. The farplug
+  menu-bar app does the typing and asks once for the Accessibility permission
+  (System Settings > Privacy & Security > Accessibility). Apps see input
+  events, not a device, so vendor tools and raw-input games do not see it.
 - Other devices are refused with a message saying so.
+
+The agent runs as a system LaunchDaemon, as on Linux: macOS asks every
+program that reaches the local network for permission and forgets it when
+the program is updated, but root daemons are exempt. The installer puts
+`farplug.app` (window and menu-bar icon) in Applications.
 
 [usbip-win2]: https://github.com/vadimgrn/usbip-win2
 

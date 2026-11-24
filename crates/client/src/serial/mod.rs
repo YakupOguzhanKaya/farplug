@@ -44,6 +44,7 @@ impl Port {
             );
         };
         let (master, slave, tty) = open_pty()?;
+        share(&tty);
         set_raw(&slave)?;
         let mut line = line_of(&slave).unwrap_or_default();
         chip.init(&dev, &line)?;
@@ -160,6 +161,24 @@ impl Drop for Port {
     fn drop(&mut self) {
         self.stop();
     }
+}
+
+/// A pty opened by the root agent belongs to root; hand it to the farplug
+/// group (or, without one, everyone) so its users can open the port.
+fn share(tty: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    // SAFETY: geteuid has no preconditions.
+    if unsafe { libc::geteuid() } != 0 {
+        return;
+    }
+    let mode = match crate::auth::group_id() {
+        Some(gid) => {
+            let _ = std::os::unix::fs::chown(tty, Some(0), Some(gid));
+            0o660
+        }
+        None => 0o666,
+    };
+    let _ = fs::set_permissions(tty, fs::Permissions::from_mode(mode));
 }
 
 fn open_pty() -> Result<(OwnedFd, OwnedFd, String)> {

@@ -1,15 +1,15 @@
 //! How the CLI and GUI talk to the agent: one JSON line each way.
 //!
-//! On Linux that is a Unix socket, and the agent checks who connected (see
-//! [`crate::auth`]). Elsewhere the agent runs per user and listens on loopback
-//! TCP; it publishes its port and a random token in a file only that user can
-//! read, so reading the file is the permission check.
+//! On Linux and macOS the agent runs as root and listens on a Unix socket,
+//! checking who connected (see [`crate::auth`]). On Windows it runs per user
+//! and listens on loopback TCP; it publishes its port and a random token in a
+//! file only that user can read, so reading the file is the permission check.
 
 use std::collections::BTreeMap;
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
 use std::fs;
 use std::io::{self, BufRead, BufReader, Read, Write};
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::time::Duration;
 
@@ -47,6 +47,21 @@ pub enum Request {
         server: String,
         alias: Option<String>,
     },
+    /// What a server exports, fetched by the agent (macOS restricts which
+    /// programs may reach the local network; the root agent is exempt).
+    Exports {
+        server: String,
+    },
+    /// Stream input events from attached keyboards and mice, one per line,
+    /// until the connection closes. For the program that replays them.
+    InputEvents,
+}
+
+/// A server's exported devices, and its labels if it is a farplug server.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Exports {
+    pub devices: Vec<farplug_usbip::ExportedDevice>,
+    pub info: Option<farplug_usbip::ServerInfo>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,28 +139,78 @@ struct Envelope {
 #[serde(rename_all = "snake_case")]
 enum Reply {
     Ok(Status),
+    Exports(Exports),
     Error(String),
 }
 
 /// Send one request to the running agent.
 pub fn call(paths: &Paths, request: Request) -> Result<Status> {
-    let (mut sock, token) = connect(paths)?;
-    write_line(&mut sock, &Envelope { token, request })?;
-    match read_line::<Reply>(&mut sock).context("reading the agent's reply")? {
+    match round_trip(paths, request)? {
         Reply::Ok(status) => Ok(status),
         Reply::Error(e) => Err(anyhow!(e)),
+        Reply::Exports(_) => bail!("unexpected reply from the agent"),
     }
 }
 
-#[cfg(target_os = "linux")]
+/// What `server` exports, as the agent sees it.
+pub fn exports(paths: &Paths, server: &str) -> Result<Exports> {
+    match round_trip(
+        paths,
+        Request::Exports {
+            server: server.to_owned(),
+        },
+    )? {
+        Reply::Exports(e) => Ok(e),
+        Reply::Error(e) => Err(anyhow!(e)),
+        Reply::Ok(_) => bail!("unexpected reply from the agent"),
+    }
+}
+
+fn round_trip(paths: &Paths, request: Request) -> Result<Reply> {
+    let (mut sock, token) = connect(paths)?;
+    write_line(&mut sock, &Envelope { token, request })?;
+    read_line::<Reply>(&mut sock).context("reading the agent's reply")
+}
+
+/// Input events from the agent's keyboards and mice, as they happen; ends
+/// with an error when the agent goes away.
+#[cfg(unix)]
+pub fn input_events(paths: &Paths) -> Result<impl Iterator<Item = Result<crate::hid::Event>>> {
+    let (mut sock, token) = connect(paths)?;
+    write_line(
+        &mut sock,
+        &Envelope {
+            token,
+            request: Request::InputEvents,
+        },
+    )?;
+    sock.set_read_timeout(None)?;
+    let mut lines = BufReader::new(sock).lines();
+    Ok(std::iter::from_fn(move || {
+        let line = lines.next()?;
+        Some(line.map_err(anyhow::Error::from).and_then(|l| {
+            // An error reply instead of events: refused, e.g. not in the group.
+            if let Ok(Reply::Error(e)) = serde_json::from_str::<Reply>(&l) {
+                return Err(anyhow!(e));
+            }
+            Ok(serde_json::from_str(&l)?)
+        }))
+    }))
+}
+
+#[cfg(unix)]
 fn connect(paths: &Paths) -> Result<(std::os::unix::net::UnixStream, String)> {
     use std::os::unix::net::UnixStream;
     let p = &paths.endpoint;
+    let start = if cfg!(target_os = "macos") {
+        "sudo launchctl kickstart system/com.farplug.agent"
+    } else {
+        "sudo systemctl start farplug-agent"
+    };
     let sock = UnixStream::connect(p).map_err(|e| match e.kind() {
-        io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused => anyhow!(
-            "the farplug agent is not running; start it with \
-             `sudo systemctl start farplug-agent`"
-        ),
+        io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused => {
+            anyhow!("the farplug agent is not running; start it with `{start}`")
+        }
         _ => anyhow!("connecting to the farplug agent at {}: {e}", p.display()),
     })?;
     sock.set_read_timeout(Some(TIMEOUT))?;
@@ -153,7 +218,7 @@ fn connect(paths: &Paths) -> Result<(std::os::unix::net::UnixStream, String)> {
     Ok((sock, String::new()))
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
 fn connect(paths: &Paths) -> Result<(TcpStream, String)> {
     let ep = read_endpoint(paths)?;
     let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, ep.port));
@@ -165,7 +230,7 @@ fn connect(paths: &Paths) -> Result<(TcpStream, String)> {
     Ok((sock, ep.token))
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
 fn read_endpoint(paths: &Paths) -> Result<Endpoint> {
     let p = &paths.endpoint;
     let text = match fs::read_to_string(p) {
@@ -185,6 +250,19 @@ pub fn read_request(sock: &mut impl Read, token: &str) -> Result<Request> {
         bail!("bad token");
     }
     Ok(env.request)
+}
+
+pub fn write_exports(sock: &mut impl Write, result: Result<Exports>) -> Result<()> {
+    let reply = match result {
+        Ok(e) => Reply::Exports(e),
+        Err(e) => Reply::Error(format!("{e:#}")),
+    };
+    write_line(sock, &reply)
+}
+
+#[cfg(unix)]
+pub fn write_event(sock: &mut impl Write, e: &crate::hid::Event) -> Result<()> {
+    write_line(sock, e)
 }
 
 pub fn write_reply(sock: &mut impl Write, result: Result<Status>) -> Result<()> {

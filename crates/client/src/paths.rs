@@ -1,11 +1,11 @@
 use std::env;
 use std::path::PathBuf;
 
-/// The agent's socket on Linux, or elsewhere the file where it publishes its
-/// port and token.
-#[cfg(target_os = "linux")]
+/// The agent's socket, or on Windows the file where it publishes its port
+/// and token.
+#[cfg(unix)]
 const ENDPOINT: &str = "agent.sock";
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
 const ENDPOINT: &str = "agent.json";
 
 /// How to reach the agent, and where it keeps the list of devices to
@@ -44,16 +44,13 @@ impl Paths {
         }
     }
 
-    /// Per-user, like Windows: the agent runs as the user's LaunchAgent.
+    /// A system LaunchDaemon, like the Linux service: as root it is exempt
+    /// from macOS's per-program Local Network permission.
     #[cfg(target_os = "macos")]
     fn platform() -> Self {
-        let base = env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(env::temp_dir)
-            .join("Library/Application Support/farplug");
         Self {
-            endpoint: base.join(ENDPOINT),
-            state: base.join("state.json"),
+            endpoint: PathBuf::from("/var/run/farplug").join(ENDPOINT),
+            state: PathBuf::from("/Library/Application Support/farplug/state.json"),
         }
     }
 
@@ -74,8 +71,9 @@ pub fn serial_dir() -> PathBuf {
     if let Some(dir) = env::var_os("FARPLUG_AGENT_DIR") {
         return PathBuf::from(dir).join("serial");
     }
-    env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(env::temp_dir)
-        .join(".farplug/serial")
+    if cfg!(target_os = "macos") {
+        PathBuf::from("/var/run/farplug/serial")
+    } else {
+        PathBuf::from("/run/farplug/serial")
+    }
 }

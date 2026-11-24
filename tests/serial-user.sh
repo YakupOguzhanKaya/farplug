@@ -72,20 +72,39 @@ for kind in cp210x cdcacm; do
 done
 
 echo "=== keyboard and mouse"
+# Subscribe to the agent's input events, as the macOS menu-bar app does.
+python3 - $T/agent/agent.sock >$T/events.log 2>&1 <<'PY' &
+import socket, sys
+s = socket.socket(socket.AF_UNIX)
+s.connect(sys.argv[1])
+s.sendall(b'{"op":"input_events"}\n')
+for line in s.makefile():
+    print(line.strip(), flush=True)
+PY
+SUB=$!
 python3 tests/fake_device.py 3310 hid hid >$T/hid.log 2>&1 &
 FAKE=$!
 sleep 0.5
 $BIN/farplug --server 127.0.0.1:3310 attach hid >/dev/null
-for want in 'Key { usage: 225, down: true }' 'Key { usage: 4, down: true }' \
-    'Key { usage: 4, down: false }' 'Button { button: 0, down: true }' \
-    'Motion { dx: 5, dy: -2 }' 'Scroll { lines: -1 }'; do
-    wait_for 10 grep -qF "$want" $T/agent.log && pass "input: $want" || fail "input: no $want"
+for want in '"kind":"key","usage":225,"down":true' '"kind":"key","usage":4,"down":true' \
+    '"kind":"key","usage":4,"down":false' '"kind":"button","button":0,"down":true' \
+    '"kind":"motion","dx":5,"dy":-2' '"kind":"scroll","lines":-1'; do
+    wait_for 10 grep -qF "$want" $T/events.log && pass "input: $want" || fail "input: no $want"
 done
 $BIN/farplug status | grep -q '^127.0.0.1:3310 .*hid .*attached .*keyboard and mouse input' \
     && pass "input: status shows keyboard and mouse input" \
     || fail "input: $($BIN/farplug status)"
+python3 - $T/agent/agent.sock >$T/exports.json <<'PY'
+import socket, sys
+s = socket.socket(socket.AF_UNIX)
+s.connect(sys.argv[1])
+s.sendall(b'{"op":"exports","server":"127.0.0.1:3310"}\n')
+print(s.makefile().readline())
+PY
+grep -q '"exports".*"busid":"hid"' $T/exports.json && pass "agent lists a server's devices" \
+    || fail "exports: $(cat $T/exports.json)"
 $BIN/farplug detach hid >/dev/null
-kill $FAKE; wait $FAKE 2>/dev/null
+kill $FAKE $SUB; wait $FAKE $SUB 2>/dev/null
 
 [ $FAILED = 0 ] && echo "ALL PASSED" || { echo "SOME FAILED"; tail -20 $T/agent.log; }
 exit $FAILED

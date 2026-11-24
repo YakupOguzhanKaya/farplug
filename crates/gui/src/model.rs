@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 
 use farplug::ipc::{self, DeviceStatus, Request, Status};
 use farplug::paths::Paths;
+#[cfg(not(target_os = "macos"))]
 use farplug::Server;
 use farplug_usbip::{DeviceInfo, ExportedDevice, ServerInfo};
 
@@ -54,7 +55,7 @@ pub struct Row<'a> {
 
 impl Row<'_> {
     /// The label from the server's config, if it sets one.
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
     pub fn label(&self) -> Option<&str> {
         self.info?.label.as_deref()
     }
@@ -135,6 +136,32 @@ impl Model {
     }
 }
 
+type Fetched = (Result<Vec<ExportedDevice>, String>, Option<ServerInfo>);
+
+/// macOS lets only programs it has granted Local Network access reach the
+/// LAN, and the root agent is exempt, so ask the agent there.
+#[cfg(target_os = "macos")]
+fn fetch(paths: &Paths, server: &str) -> Fetched {
+    match ipc::exports(paths, server) {
+        Ok(e) => (Ok(e.devices), e.info),
+        Err(e) => (Err(format!("{e:#}")), None),
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn fetch(_: &Paths, server: &str) -> Fetched {
+    let server = Server::parse(server);
+    let devices = server
+        .as_ref()
+        .map_err(|e| format!("{e:#}"))
+        .and_then(|sv| sv.devices().map_err(|e| format!("{e:#}")));
+    let info = match (&server, &devices) {
+        (Ok(sv), Ok(_)) => sv.info().ok(),
+        _ => None,
+    };
+    (devices, info)
+}
+
 /// Starts the background threads; `repaint` is called whenever the model
 /// changes.
 pub fn spawn(
@@ -145,8 +172,10 @@ pub fn spawn(
     let repaint = Arc::new(repaint);
     let (tx, rx) = mpsc::channel::<Action>();
 
+    let agent_paths = paths.clone();
     let (m, r) = (model.clone(), repaint.clone());
     thread::spawn(move || {
+        let paths = agent_paths;
         let mut action = None;
         loop {
             crate::launch::ensure_agent(&paths);
@@ -206,16 +235,9 @@ pub fn spawn(
             let fetches: Vec<_> = servers
                 .into_iter()
                 .map(|s| {
+                    let paths = paths.clone();
                     thread::spawn(move || {
-                        let server = Server::parse(&s);
-                        let devices = server
-                            .as_ref()
-                            .map_err(|e| format!("{e:#}"))
-                            .and_then(|sv| sv.devices().map_err(|e| format!("{e:#}")));
-                        let info = match (&server, &devices) {
-                            (Ok(sv), Ok(_)) => sv.info().ok(),
-                            _ => None,
-                        };
+                        let (devices, info) = fetch(&paths, &s);
                         (s, devices, info)
                     })
                 })

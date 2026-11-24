@@ -1,6 +1,7 @@
 //! Replays a remote keyboard and mouse as synthetic macOS input events
-//! (CoreGraphics). Needs the Accessibility permission; without it macOS
-//! silently drops the events.
+//! (CoreGraphics), in the menu-bar app: it runs in the user's session, which
+//! the root agent cannot post into. Needs the Accessibility permission;
+//! without it macOS silently drops the events.
 
 use std::ffi::c_void;
 
@@ -134,13 +135,8 @@ pub struct MacInput {
 unsafe impl Send for MacInput {}
 
 impl MacInput {
+    /// Check [`trusted`] first: without the permission macOS drops the events.
     pub fn new() -> Result<Self> {
-        if !trusted(true) {
-            bail!(
-                "farplug needs the Accessibility permission to type and move the pointer: \
-                 System Settings > Privacy & Security > Accessibility, then turn on farplug"
-            );
-        }
         // SAFETY: plain constructor; null on failure, checked below.
         let source = unsafe { CGEventSourceCreate(HID_SYSTEM_STATE) };
         if source.is_null() {
